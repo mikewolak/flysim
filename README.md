@@ -7,6 +7,26 @@ connectome (139,266 neurons / 16.8M synapses) run as a leaky integrate-and-fire
 network on Apple Silicon, with a Logic-Pro-styled Cocoa GUI and a full MCP
 control plane. See `FLYSIM_BUILD.md` for the design.
 
+## Performance — the whole fly brain, faster than life
+
+**3.76× biological real-time** for the entire 139k-neuron / 16.8M-synapse
+connectome at a 1 ms tick, on an M1 Pro laptop.
+
+![FlySim throughput](docs/perf.svg)
+
+| config | steps/sec | × real-time | agreement |
+|---|--:|--:|---|
+| CPU · dense gather (8 threads) | 403 | 0.40× | bit-exact |
+| CPU · event-driven | 769 | 0.77× | bit-exact |
+| GPU · dense gather (warp) | 461 | 0.46× | bit-exact |
+| **GPU · event-driven** | **3,760** | **3.76×** | **bit-exact** |
+
+Real-time = 1,000 steps/s (1 ms tick). The event-driven path scatters only from
+the ~2.5 % of neurons that spike each step instead of touching all 16.8M synapses.
+Every backend accumulates in Q14 fixed-point integers, so CPU, GPU, gather and
+scatter are **bit-for-bit identical** (`max|Δrate| = 0`) — order-independent and
+fully reproducible. Regenerate with `build/flycompare data/flysim_real.bin`.
+
 ## Layout
 
 - `src/` — the C99 LIF core (`flysim.c`), on-disk format, public API, and the

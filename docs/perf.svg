@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 300" font-family="-apple-system,Menlo,monospace">
+  <rect width="720" height="300" rx="10" fill="#1c1d20"/>
+  <text x="20" y="30" fill="#3ce682" font-size="18" font-weight="800">FlySim — whole fly brain throughput</text>
+  <text x="20" y="50" fill="#8a858e" font-size="12">FlyWire connectome · 139,266 neurons / 16.8M synapses · 1 ms tick · M1 Pro. All paths bit-for-bit identical.</text>
+
+  <!-- real-time reference line at 1000 steps/s (x = 156 + 1000*0.1383) -->
+  <line x1="294" y1="64" x2="294" y2="252" stroke="#ffffff" stroke-opacity="0.35" stroke-dasharray="4 4"/>
+  <text x="298" y="76" fill="#cfd2d8" font-size="11">1× real-time</text>
+
+  <!-- CPU gather: 403 steps/s -->
+  <text x="16" y="92" fill="#8a858e" font-size="12">CPU gather</text>
+  <rect x="156" y="78" width="56" height="22" rx="3" fill="#8a858e"/>
+  <text x="220" y="94" fill="#d6d8de" font-size="12">403 /s · 0.40×</text>
+
+  <!-- CPU event-driven: 769 steps/s -->
+  <text x="16" y="128" fill="#8a858e" font-size="12">CPU event</text>
+  <rect x="156" y="114" width="106" height="22" rx="3" fill="#38c7ff"/>
+  <text x="270" y="130" fill="#d6d8de" font-size="12">769 /s · 0.77×</text>
+
+  <!-- GPU gather (warp): 461 steps/s -->
+  <text x="16" y="164" fill="#8a858e" font-size="12">GPU gather</text>
+  <rect x="156" y="150" width="64" height="22" rx="3" fill="#b08cff"/>
+  <text x="228" y="166" fill="#d6d8de" font-size="12">461 /s · 0.46×</text>
+
+  <!-- GPU event-driven: 3760 steps/s -->
+  <text x="16" y="200" fill="#3ce682" font-size="12" font-weight="700">GPU event</text>
+  <rect x="156" y="186" width="520" height="22" rx="3" fill="#3ce682"/>
+  <text x="156" y="202" fill="#06270f" font-size="12" font-weight="800" dx="8">3760 /s</text>
+
+  <text x="20" y="246" fill="#3ce682" font-size="26" font-weight="800">3.76× real-time</text>
+  <text x="210" y="246" fill="#8a858e" font-size="12">GPU event-driven, whole connectome, deterministic.</text>
+  <text x="20" y="280" fill="#5c5f66" font-size="10">(c) 2026 Epromfoundry, Inc. — educational use only. Reproduce: build/flycompare data/flysim_real.bin</text>
+</svg>
