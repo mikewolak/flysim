@@ -46,6 +46,15 @@ struct FlySim {
     const uint32_t* indices;    // [E]
     const float*    weights;    // [E] sign baked
     int32_t*        wfix;       // [E] weights in Q14 fixed-point (deterministic gather)
+
+    // CSR-by-presynaptic (transpose of CSC) for event-driven scatter. Built at
+    // load; no on-disk change. Lets a step touch only edges OUT of neurons that
+    // actually spiked (~1.4% active) instead of every in-edge of every neuron.
+    uint32_t*       indptr_pre; // [N+1] out-edge ranges per presynaptic neuron
+    uint32_t*       post_csr;   // [E]   postsynaptic target per out-edge
+    int32_t*        wfix_csr;   // [E]   Q14 weight per out-edge
+    int32_t*        isyn_in;    // [N]   per-step integer accumulator (scatter target)
+    int             eventdriven;// 1 => scatter from active set; 0 => dense gather
     const uint8_t*  nt;         // [N]
     const uint8_t*  flow;       // [N]
     const uint8_t*  super;      // [N]
@@ -137,6 +146,29 @@ FlySim* flysim_open(const char* bin_path, FlyBackend backend) {
     for (uint32_t e = 0; e < s->E; ++e)
         s->wfix[e] = (int32_t)lroundf(s->weights[e] * (float)FLYSIM_FIX_SCALE);
 
+    // transpose CSC -> CSR (by presynaptic) for the event-driven scatter path
+    {
+        uint32_t Nn = s->N, Ee = s->E;
+        s->indptr_pre = calloc((size_t)Nn + 1, sizeof(uint32_t));
+        s->post_csr   = malloc((size_t)(Ee ? Ee : 1) * sizeof(uint32_t));
+        s->wfix_csr   = malloc((size_t)(Ee ? Ee : 1) * sizeof(int32_t));
+        s->isyn_in    = calloc(Nn, sizeof(int32_t));
+        // out-degree per presynaptic neuron (= indices[e] across all columns)
+        for (uint32_t e = 0; e < Ee; ++e) s->indptr_pre[s->indices[e] + 1]++;
+        for (uint32_t i = 0; i < Nn; ++i) s->indptr_pre[i + 1] += s->indptr_pre[i];
+        uint32_t* cur = malloc((size_t)Nn * sizeof(uint32_t));
+        memcpy(cur, s->indptr_pre, (size_t)Nn * sizeof(uint32_t));
+        // walk CSC columns: edge e in column j goes pre=indices[e] -> post=j
+        for (uint32_t j = 0; j < Nn; ++j)
+            for (uint32_t e = s->indptr[j]; e < s->indptr[j + 1]; ++e) {
+                uint32_t pre = s->indices[e];
+                uint32_t pos = cur[pre]++;
+                s->post_csr[pos] = j;
+                s->wfix_csr[pos] = s->wfix[e];
+            }
+        free(cur);
+    }
+
     s->mn9_set = FLYSET_NONE;
     s->backend = FLYSIM_CPU;
 
@@ -201,6 +233,7 @@ void flysim_close(FlySim* s) {
     free(s->V); free(s->Isyn); free(s->refrac);
     free(s->spike); free(s->spike_prev); free(s->rate);
     free(s->clamp_hz); free(s->clamp_phase); free(s->wfix);
+    free(s->indptr_pre); free(s->post_csr); free(s->wfix_csr); free(s->isyn_in);
     if (s->mtl && &fly_metal_destroy) fly_metal_destroy(s->mtl);
     if (s->map) munmap(s->map, s->map_bytes);
     free(s);
@@ -340,6 +373,38 @@ static uint32_t step_range(FlySim* s, uint32_t lo, uint32_t hi, float dt,
     return spikes;
 }
 
+// Membrane update for neuron rows [lo,hi) reading a precomputed integer gather
+// in isyn_in[] (the event-driven scatter target). Same arithmetic as step_range
+// minus the gather, so it produces bit-identical results.
+static uint32_t update_range(FlySim* s, uint32_t lo, uint32_t hi, float dt,
+                             float syn_decay, float leak_k, float rate_k, float inv_dt) {
+    const int32_t* isyn_in = s->isyn_in;
+    uint32_t spikes = 0;
+    for (uint32_t j = lo; j < hi; ++j) {
+        float gathered = (float)isyn_in[j] / (float)FLYSIM_FIX_SCALE;
+        float isyn = s->Isyn[j] * syn_decay + gathered;
+        s->Isyn[j] = isyn;
+
+        uint8_t fired = 0;
+        if (s->refrac[j] > 0.0f) {
+            s->refrac[j] -= dt;
+        } else if (s->clamp_hz[j] > 0.0f) {
+            float ph = s->clamp_phase[j] + s->clamp_hz[j] * dt;
+            if (ph >= 1.0f) { ph -= 1.0f; fired = 1; s->V[j] = V_RESET; }
+            s->clamp_phase[j] = ph;
+        } else {
+            float v = s->V[j] + leak_k * (V_REST - s->V[j]) + isyn;
+            if (v >= V_THRESH) { fired = 1; v = V_RESET; s->refrac[j] = T_REFRAC; }
+            s->V[j] = v;
+        }
+        s->spike[j] = fired;
+        spikes += fired;
+        float inst = fired ? inv_dt : 0.0f;
+        s->rate[j] += (inst - s->rate[j]) * rate_k;
+    }
+    return spikes;
+}
+
 // active CPU count (cached)
 static uint32_t cpu_threads(void) {
     static uint32_t n = 0;
@@ -347,6 +412,27 @@ static uint32_t cpu_threads(void) {
               if (sysctlbyname("hw.activecpu", &v, &sz, NULL, 0) != 0) v = 8;
               n = v < 1 ? 1 : (uint32_t)v; }
     return n;
+}
+
+typedef uint32_t (*range_fn)(FlySim*, uint32_t, uint32_t, float, float, float, float, float);
+
+// Run a per-neuron range function across all cores (serial below threshold).
+static uint32_t run_parallel(FlySim* s, range_fn fn, float dt,
+                             float syn_decay, float leak_k, float rate_k, float inv_dt) {
+    const uint32_t N = s->N;
+    if (N < 16384) return fn(s, 0, N, dt, syn_decay, leak_k, rate_k, inv_dt);
+
+    uint32_t NCH = cpu_threads() * 2; if (NCH > 64) NCH = 64;
+    uint32_t parr[64]; uint32_t* pp = parr;
+    dispatch_apply(NCH, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0),
+        ^(size_t c) {
+            uint32_t lo = (uint32_t)((uint64_t)c * N / NCH);
+            uint32_t hi = (uint32_t)((uint64_t)(c + 1) * N / NCH);
+            pp[c] = fn(s, lo, hi, dt, syn_decay, leak_k, rate_k, inv_dt);
+        });
+    uint32_t spikes = 0;
+    for (uint32_t c = 0; c < NCH; ++c) spikes += parr[c];
+    return spikes;
 }
 
 void flysim_step(FlySim* s, float dt) {
@@ -363,24 +449,21 @@ void flysim_step(FlySim* s, float dt) {
     const float rate_k    = dt / TAU_RATE;
     const float inv_dt    = 1.0f / dt;
 
-    uint32_t spikes = 0;
-
-    // Parallelize across all cores once the network is large enough to pay for
-    // the dispatch. Each chunk owns a disjoint neuron range — embarrassingly
-    // parallel (the gather reads spike_prev; writes are per-neuron).
-    if (N >= 16384) {
-        uint32_t NCH = cpu_threads() * 2;       // a couple of chunks per core
-        if (NCH > 64) NCH = 64;
-        uint32_t parr[64]; uint32_t* pp = parr;
-        dispatch_apply(NCH, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0),
-            ^(size_t c) {
-                uint32_t lo = (uint32_t)((uint64_t)c * N / NCH);
-                uint32_t hi = (uint32_t)((uint64_t)(c + 1) * N / NCH);
-                pp[c] = step_range(s, lo, hi, dt, syn_decay, leak_k, rate_k, inv_dt);
-            });
-        for (uint32_t c = 0; c < NCH; ++c) spikes += parr[c];
+    uint32_t spikes;
+    if (s->eventdriven) {
+        // scatter: only neurons that spiked last step contribute. Integer adds,
+        // so the result is identical to the dense gather regardless of order.
+        memset(s->isyn_in, 0, (size_t)N * sizeof(int32_t));
+        const uint8_t* sprev = s->spike_prev;
+        for (uint32_t i = 0; i < N; ++i) {
+            if (!sprev[i]) continue;
+            const uint32_t a = s->indptr_pre[i], b = s->indptr_pre[i + 1];
+            for (uint32_t e = a; e < b; ++e)
+                s->isyn_in[s->post_csr[e]] += s->wfix_csr[e];
+        }
+        spikes = run_parallel(s, update_range, dt, syn_decay, leak_k, rate_k, inv_dt);
     } else {
-        spikes = step_range(s, 0, N, dt, syn_decay, leak_k, rate_k, inv_dt);
+        spikes = run_parallel(s, step_range, dt, syn_decay, leak_k, rate_k, inv_dt);
     }
 
     // swap spike buffers (this step's spikes drive next step's gather)
@@ -389,6 +472,9 @@ void flysim_step(FlySim* s, float dt) {
     s->last_spikes = spikes;
     s->sim_time += dt;
 }
+
+void flysim_set_eventdriven(FlySim* s, int on) { s->eventdriven = on ? 1 : 0; }
+int  flysim_eventdriven(const FlySim* s) { return s->eventdriven; }
 
 void flysim_run(FlySim* s, float dt, int k) {
     if (s->gpu_active) {                 // one batched dispatch — amortize §6.3

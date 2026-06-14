@@ -41,6 +41,12 @@ FlyBackend flysim_backend(const FlySim*);
 // scalar-per-neuron (sums in CPU order; reproduces the CPU result exactly).
 void flysim_gpu_fast(FlySim*, int fast);
 
+// Event-driven mode: 1 = scatter only from neurons that spiked (fast when the
+// network is sparse), 0 = dense gather over every edge. Bit-identical either way
+// (integer accumulation), so it's purely a performance switch.
+void flysim_set_eventdriven(FlySim*, int on);
+int  flysim_eventdriven(const FlySim*);
+
 // ---- set resolution --------------------------------------------------------
 // Resolve a named cell type / modality / superclass to a row set. side: -1=both.
 FlySet  flysim_set_by_celltype(FlySim*, const char* cell_type);

@@ -22,19 +22,19 @@ typedef struct {
 extern "C" {
 #endif
 
-int   fly_metal_available(void) __attribute__((weak));
+int   fly_metal_available(void) __attribute__((weak_import));
 void* fly_metal_create(uint32_t N, uint32_t E, const uint32_t* indptr,
-                       const uint32_t* indices, const int32_t* weights_fixed) __attribute__((weak));
-void  fly_metal_destroy(void* ctx) __attribute__((weak));
-void  fly_metal_set_kernel(void* ctx, int warp) __attribute__((weak));
+                       const uint32_t* indices, const int32_t* weights_fixed) __attribute__((weak_import));
+void  fly_metal_destroy(void* ctx) __attribute__((weak_import));
+void  fly_metal_set_kernel(void* ctx, int warp) __attribute__((weak_import));
 void  fly_metal_upload_state(void* ctx, const float* V, const float* Isyn,
                              const float* refrac, const unsigned char* spike_prev,
-                             const float* rate, const float* clamp_phase) __attribute__((weak));
+                             const float* rate, const float* clamp_phase) __attribute__((weak_import));
 void  fly_metal_download_state(void* ctx, float* V, float* Isyn, float* refrac,
                                unsigned char* spike_prev, float* rate,
-                               float* clamp_phase) __attribute__((weak));
+                               float* clamp_phase) __attribute__((weak_import));
 uint32_t fly_metal_run(void* ctx, FlyMetalParams p, int k, const float* clamp_hz,
-                       float* rate_out, unsigned char* spike_prev_out) __attribute__((weak));
+                       float* rate_out, unsigned char* spike_prev_out) __attribute__((weak_import));
 
 #ifdef __cplusplus
 }
