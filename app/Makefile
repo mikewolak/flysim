@@ -56,10 +56,12 @@ $(OBJ_DIR)/%.o: src/%.m
 	@mkdir -p $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# ensure the synthetic connectome exists
+# ensure the synthetic connectome exists (data/ is gitignored, so on a fresh
+# checkout — e.g. CI — the directory may not exist yet; create it before packing)
 bin:
 	@if [ ! -f $(DATA_BIN) ]; then \
 		echo "Generating synthetic connectome..."; \
+		mkdir -p $(dir $(DATA_BIN)); \
 		clang $(CSTD) -O2 ../tools/flypack.c -o $(BUILD_DIR)/flypack && \
 		$(BUILD_DIR)/flypack synth $(DATA_BIN); \
 	fi
