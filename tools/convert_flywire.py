@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+# Educational & academic research use only — commercial use prohibited.  See LICENSE.
 # convert_flywire.py — FlyWire v783 (feather + annotations TSV) -> flysim.bin
 #
 # Emits the exact on-disk layout of flysim_format.h (CSC, signs baked) so the

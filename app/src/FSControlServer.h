@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 //  FSControlServer.h — HTTP + JSON control plane for FlySim (the "MCP" surface).
 //
 //  Mirrors the Sluice SluiceControlServerCore design: a loopback TCP listener

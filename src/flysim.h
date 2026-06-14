@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flysim.h — public C API the GUI / render side calls. See FLYSIM_BUILD.md §4.
 //
 // One init, one step, a couple of clamps, a couple of readouts. The caller
@@ -40,6 +42,12 @@ FlyBackend flysim_backend(const FlySim*);
 // GPU kernel selection: 1 = fast warp-per-neuron (default), 0 = bit-exact
 // scalar-per-neuron (sums in CPU order; reproduces the CPU result exactly).
 void flysim_gpu_fast(FlySim*, int fast);
+
+// Event-driven mode: 1 = scatter only from neurons that spiked (fast when the
+// network is sparse), 0 = dense gather over every edge. Bit-identical either way
+// (integer accumulation), so it's purely a performance switch.
+void flysim_set_eventdriven(FlySim*, int on);
+int  flysim_eventdriven(const FlySim*);
 
 // ---- set resolution --------------------------------------------------------
 // Resolve a named cell type / modality / superclass to a row set. side: -1=both.

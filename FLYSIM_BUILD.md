@@ -1,3 +1,5 @@
+<!-- FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved. -->
+<!-- Educational & academic research use only — commercial use prohibited.  See LICENSE. -->
 # FlySim — A Connectome-Driven Fruit Fly, C / Objective-C / Metal
 
 A buildable plan for taking the FlyWire whole-brain connectome, running it as a

@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 //  FlyController.m
 
 #import "FlyController.h"
@@ -29,6 +31,7 @@
     if (!_sim) return nil;
     _binPath = [path copy];
     _speed = 1.0;            // real time by default
+    _eventDriven = YES;      // sparse scatter on by default (bit-exact, faster)
 
     _lock = OS_UNFAIR_LOCK_INIT;
     _neuronCount = flysim_neuron_count(_sim);
@@ -39,6 +42,7 @@
     _bitter = flysim_set_by_modality(_sim, MOD_GUSTATORY_BITTER, -1);
     _mn9    = flysim_set_by_celltype(_sim, "MN9");
     _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
+    flysim_set_eventdriven(_sim, _eventDriven);
 
     mach_timebase_info_data_t tb; mach_timebase_info(&tb);
     _t2ns = (double)tb.numer / (double)tb.denom;
@@ -59,10 +63,16 @@
     if (!_runFlag) {
         // safe to switch immediately when the sim thread is idle
         flysim_set_backend(_sim, gpu ? FLYSIM_GPU : FLYSIM_CPU);
+        flysim_set_eventdriven(_sim, _eventDriven);   // new GPU ctx inherits mode
         _pendingBackend = 0;
     } else {
         _pendingBackend = 1;   // sim thread applies at the next chunk boundary
     }
+}
+
+- (void)setEventDriven:(BOOL)on {
+    _eventDriven = on;
+    flysim_set_eventdriven(_sim, on);
 }
 
 - (void)start {
@@ -95,6 +105,7 @@
         _bitter = flysim_set_by_modality(_sim, MOD_GUSTATORY_BITTER, -1);
         _mn9    = flysim_set_by_celltype(_sim, "MN9");
         _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
+    flysim_set_eventdriven(_sim, _eventDriven);
         if (_wantGPU) flysim_set_backend(_sim, FLYSIM_GPU);   // keep backend across reset
     }
     os_unfair_lock_lock(&_lock);
@@ -116,6 +127,7 @@
         // apply a pending backend switch on the thread that owns _sim
         if (_pendingBackend) {
             flysim_set_backend(_sim, _wantGPU ? FLYSIM_GPU : FLYSIM_CPU);
+            flysim_set_eventdriven(_sim, _eventDriven);
             _pendingBackend = 0;
         }
         // apply UI stimulus to the model
@@ -219,6 +231,7 @@
     return @{
         @"running":        @(_runFlag),
         @"backend":        self.usingGPU ? @"gpu" : @"cpu",
+        @"eventdriven":    @(self.eventDriven),
         @"sim_time_s":     @(s.simTime),
         @"steps_per_sec":  @(s.stepsPerSec),
         @"realtime_factor":@(s.realtimeFactor),

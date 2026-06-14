@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flysim_format.h — on-disk binary layout shared by flypack (writer) and
 // the runtime (mmap reader). C99, no dependencies. See FLYSIM_BUILD.md §3.2.
 //

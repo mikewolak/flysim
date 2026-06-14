@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flydrive.c — headless driver / smoke test for the LIF core. C99.
 // Reproduces the v0 contract: clamp sugar GRNs, run 1 s of bio time, read MN9.
 //
