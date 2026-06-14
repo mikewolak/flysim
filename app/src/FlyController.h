@@ -52,6 +52,9 @@ typedef struct {
 @property (atomic) float heatHz;     // thermosensory
 @property (atomic) float humidityHz;    // hygrosensory
 @property (atomic) float lightHz;    // visual photoreceptors
+// bilateral olfaction for the 3D flight loop (override symmetric smellHz when >0)
+@property (atomic) float smellLeftHz;
+@property (atomic) float smellRightHz;
 
 // Sim speed cap: 1.0 == real time (1000 steps/s @ 1ms tick). <=0 == unthrottled.
 @property (atomic) double speed;
@@ -77,6 +80,10 @@ typedef struct {
 - (NSDictionary *)motorRates;  // mn9 / motor / descending mean Hz (the outputs)
 - (NSDictionary *)populations; // named clampable/readable sets + sizes
 - (NSDictionary *)modelInfo;   // N, E, named sets + sizes, sim params
+// left/right descending-neuron firing (Hz) — the brain's bilateral steering output
+- (void)descendingLeft:(float *)l right:(float *)r;
+@property (readonly) uint32_t dnLeftSize;
+@property (readonly) uint32_t dnRightSize;
 
 // Generic input control: clamp any modality / superclass / cell-type by name to
 // a rate (Hz, 0 releases). kind ∈ "modality"|"superclass"|"celltype". Returns

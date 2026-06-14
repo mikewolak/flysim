@@ -23,3 +23,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# signing secrets (developer-specific)
+signing.env

@@ -16,6 +16,7 @@
     FlySet _sugar, _water, _bitter, _mn9, _l2;
     FlySet _smell, _touch, _heat, _humid, _light;   // the rest of the senses
     FlySet _motor, _dn;                              // motor + descending outputs
+    FlySet _smellL, _smellR, _dnL, _dnR;             // bilateral (3D flight loop)
 
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
@@ -68,6 +69,12 @@
     _dn     = flysim_set_by_superclass(_sim, SC_DESCENDING,      -1);
     _mn9    = flysim_set_by_celltype(_sim, "MN9");
     _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
+    // bilateral pathway for the 3D flight loop: left/right olfactory ORNs in,
+    // left/right descending neurons (the brain's command lines) out.
+    _smellL = flysim_set_by_modality(_sim, MOD_OLFACTORY, SIDE_LEFT);
+    _smellR = flysim_set_by_modality(_sim, MOD_OLFACTORY, SIDE_RIGHT);
+    _dnL    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_LEFT);
+    _dnR    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_RIGHT);
 }
 
 // apply every UI sensory clamp to the model (called each sim chunk + on step)
@@ -75,12 +82,26 @@
     flysim_clamp(_sim, _sugar,  self.sugarHz);
     flysim_clamp(_sim, _water,  self.waterHz);
     flysim_clamp(_sim, _bitter, self.bitterHz);
-    flysim_clamp(_sim, _smell,  self.smellHz);
+    // olfactory: bilateral when the 3D flight loop is driving it, else symmetric
+    if (self.smellLeftHz > 0 || self.smellRightHz > 0) {
+        flysim_clamp(_sim, _smellL, self.smellLeftHz);
+        flysim_clamp(_sim, _smellR, self.smellRightHz);
+    } else {
+        flysim_clamp(_sim, _smell, self.smellHz);
+    }
     flysim_clamp(_sim, _touch,  self.touchHz);
     flysim_clamp(_sim, _heat,   self.heatHz);
     flysim_clamp(_sim, _humid,  self.humidityHz);
     flysim_clamp(_sim, _light,  self.lightHz);
 }
+
+// left/right descending-neuron mean firing (Hz) — the brain's steering output
+- (void)descendingLeft:(float *)l right:(float *)r {
+    if (l) *l = flysim_set_rate(_sim, _dnL);
+    if (r) *r = flysim_set_rate(_sim, _dnR);
+}
+- (uint32_t)dnLeftSize  { return flysim_set_size(_sim, _dnL); }
+- (uint32_t)dnRightSize { return flysim_set_size(_sim, _dnR); }
 
 // map a friendly sensory name → FlyModality, or -1
 static int FSModalityForName(NSString *n) {

@@ -755,6 +755,9 @@
     [_mcp registerTool:@"food" doc:@"Place/remove a sugar droplet in front of the proboscis. When the labellum reaches it, the fly self-sustains the sugar clamp (closed feeding loop). params: {on:bool}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_foodBtn.isOn = [p[@"on"] boolValue]; [s _foodToggled:nil];
         return @{@"food": @(s->_foodBtn.isOn)}; }];
+    [_mcp registerTool:@"smell_lr" doc:@"Clamp the LEFT and RIGHT olfactory ORNs separately (Hz) — bilateral input for the 3D flight loop. params: {left:float, right:float}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; s->_fly.smellLeftHz = [p[@"left"] floatValue]; s->_fly.smellRightHz = [p[@"right"] floatValue];
+        return @{@"left":@(s->_fly.smellLeftHz), @"right":@(s->_fly.smellRightHz)}; }];
     [_mcp registerTool:@"sample_rate" doc:@"Set UI sampler rate (does not affect 1ms sim tick). params: {hz:60|90|120}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_sampleHz = [p[@"hz"] doubleValue] ?: 60; [s _installTimer];
         [s->_rateSel selectItemWithTitle:[NSString stringWithFormat:@"%.0f Hz", s->_sampleHz]];
@@ -767,6 +770,10 @@
     [_mcp registerData:@"/data/sensory" doc:@"Every sensory input, mean Hz: sugar/water/bitter/smell/touch/heat/humidity/light." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly sensoryRates]; }];
     [_mcp registerData:@"/data/motor" doc:@"Every motor output, mean Hz: mn9/feeding/motor/descending." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly motorRates]; }];
     [_mcp registerData:@"/data/populations" doc:@"Discovery: every named clampable/readable population + size." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly populations]; }];
+    [_mcp registerData:@"/data/steering" doc:@"Bilateral descending-neuron output (the brain's steering command): left/right mean Hz + turn signal (right-left)." provider:^id(NSDictionary *q){ (void)q; STRONG;
+        float dl=0, dr=0; [s->_fly descendingLeft:&dl right:&dr];
+        return @{ @"dn_left_hz":@(dl), @"dn_right_hz":@(dr), @"turn":@(dr-dl),
+                  @"thrust":@((dl+dr)*0.5f), @"dn_left_n":@(s->_fly.dnLeftSize), @"dn_right_n":@(s->_fly.dnRightSize) }; }];
     [_mcp registerData:@"/data/behavior" doc:@"The animated fly's visible state: MN9 Hz, proboscis deg + extension, walking, arrived-at-food, labellum contact, food, feeding." provider:^id(NSDictionary *q){ (void)q; STRONG;
         BOOL feeding = s->_foodBtn.isOn && s->_flyView.arrivedAtFood;
         return @{ @"mn9_hz": @(s->_fly ? [s->_fly snapshot].mn9Rate : 0),
