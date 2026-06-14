@@ -70,6 +70,9 @@ echo "── stapling ticket"
 /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 "${DMG}" || true
 
 # ── 6. drop on the Desktop ──────────────────────────────────────────────────
+# (the canonical artifact stays at ${DMG}; CI uploads that. Desktop is a
+#  convenience for local builds — create it if missing so CI doesn't fail.)
+mkdir -p "$(dirname "${DESKTOP_DMG}")"
 cp "${DMG}" "${DESKTOP_DMG}"
 echo ""
 echo "════════════════════════════════════════════════════════════════"

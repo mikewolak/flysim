@@ -1,0 +1,98 @@
+# FlySim · CI — build + codesign + notarize a distributable DMG on macOS.
+#
+# Runs only when you ask for it (manual "Run workflow", or pushing a v* tag), so
+# Apple notarization isn't hit on every commit. Produces a signed + notarized +
+# stapled DMG uploaded as a build artifact.
+#
+# NOTE: CI has no FlyWire export, so the Makefile packs the SYNTHETIC connectome
+# — this release DMG is therefore freely shareable (no FlyWire license). The
+# full real-connectome DMG is produced locally with `make release`.
+#
+# ── Required repository secrets (Settings → Secrets and variables → Actions) ──
+#   MACOS_CERTIFICATE       base64 of your Developer ID Application .p12
+#                             export it:  base64 -i DeveloperID.p12 | pbcopy
+#   MACOS_CERTIFICATE_PWD   the password you set when exporting the .p12
+#   MACOS_SIGN_IDENTITY     e.g.  Developer ID Application: Mike Wolak (5A9MF3P46K)
+#   NOTARY_APPLE_ID         your Apple ID email
+#   NOTARY_TEAM_ID          your 10-char Team ID (e.g. 5A9MF3P46K)
+#   NOTARY_PWD              an app-specific password (appleid.apple.com → Security)
+
+name: Release (signed DMG)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version — DMG is named FlySim-<version>.dmg"
+        default: "0.3"
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  release:
+    name: Build · sign · notarize · DMG
+    runs-on: macos-latest
+    permissions:
+      contents: write          # for attaching the DMG to a tag's GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then V="${GITHUB_REF_NAME#v}";
+          else V="${{ github.event.inputs.version }}"; fi
+          echo "version=${V:-0.3}" >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID Application certificate
+        env:
+          CERT_B64: ${{ secrets.MACOS_CERTIFICATE }}
+          CERT_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          set -euo pipefail
+          [ -n "$CERT_B64" ] || { echo "::error::secret MACOS_CERTIFICATE is not set"; exit 1; }
+          KCHAIN="$RUNNER_TEMP/flysim-signing.keychain-db"
+          KPWD="$(uuidgen)"
+          echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KPWD" "$KCHAIN"
+          security set-keychain-settings -lut 21600 "$KCHAIN"
+          security unlock-keychain -p "$KPWD" "$KCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PWD" -f pkcs12 \
+              -k "$KCHAIN" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+              -s -k "$KPWD" "$KCHAIN" >/dev/null
+          # make the temp keychain searchable (keep the login keychain too)
+          security list-keychains -d user -s "$KCHAIN" \
+              $(security list-keychains -d user | sed 's/[" ]//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KCHAIN"
+
+      - name: Store notary credentials
+        env:
+          AC_ID:   ${{ secrets.NOTARY_APPLE_ID }}
+          AC_TEAM: ${{ secrets.NOTARY_TEAM_ID }}
+          AC_PWD:  ${{ secrets.NOTARY_PWD }}
+        run: |
+          xcrun notarytool store-credentials ci-notary \
+              --apple-id "$AC_ID" --team-id "$AC_TEAM" --password "$AC_PWD"
+
+      - name: Build · sign · notarize · DMG
+        env:
+          SIGN_IDENTITY:       ${{ secrets.MACOS_SIGN_IDENTITY }}
+          NOTARY_PROFILE_NAME: ci-notary
+          VERSION:             ${{ steps.ver.outputs.version }}
+        run: installer/release.sh
+
+      - name: Upload signed DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlySim-${{ steps.ver.outputs.version }}-dmg
+          path: build/installer/FlySim-${{ steps.ver.outputs.version }}.dmg
+          if-no-files-found: error
+
+      # When triggered by a v* tag, also attach the DMG to a GitHub Release.
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/installer/FlySim-${{ steps.ver.outputs.version }}.dmg
