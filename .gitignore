@@ -1,0 +1,23 @@
+# build artifacts
+build/
+*.o
+*.app/
+*.dSYM/
+
+# data: large downloads + generated binaries (regenerable; see tools/)
+data/
+*.bin
+*.feather
+*.tsv
+*.csv.gz
+
+# generated reports / screenshots
+*.png
+flysim_compare*.html
+
+# python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
