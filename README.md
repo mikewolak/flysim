@@ -43,16 +43,43 @@ The synaptic gather accumulates in **Q14 fixed-point integers**, so results are
 independent of thread count / reduction order. CPU (multi-thread), GPU-scalar,
 and GPU-warp all produce identical trajectories (`flycompare`: corr 1.000000).
 
+## Getting the real connectome
+
+The dataset is **not** in this repo (≈0.85 GB, and it carries its own license).
+One command downloads it and packs `data/flysim_real.bin`:
+
+```sh
+./tools/fetch_data.sh
+```
+
+That fetches, from their public sources:
+
+| file | what | source |
+|---|---|---|
+| `proofread_connections_783.feather` (~852 MB) | per-pair edges: `pre, post, syn_count`, NT probabilities | Zenodo [10676866](https://zenodo.org/records/10676866) |
+| `Supplemental_file1_neuron_annotations.tsv` (~25 MB) | per-neuron `flow / super_class / cell_class / cell_sub_class / cell_type / nt / side` | [flyconnectome/flywire_annotations](https://github.com/flyconnectome/flywire_annotations) |
+
+then runs `tools/convert_flywire.py` (needs `pyarrow` + `pandas`, auto-installed)
+to transpose them into the mmap-ready CSC binary the runtime loads. Sugar/water
+GRNs (gustatory `sugar/water`), bitter GRNs, and the proboscis `MN9` readout
+(the motor neurons most driven by sugar) are tagged during the pack.
+
+**No download?** A self-contained synthetic connectome reproduces the full
+pipeline (sugar → MN9 reflex, all backends) offline:
+
+```sh
+clang -std=c99 -O2 tools/flypack.c -o build/flypack && build/flypack synth data/flysim.bin
+```
+
+> The FlyWire / FAFB connectome is **not** covered by the FlySim license. It is
+> subject to FlyWire's terms; please cite Dorkenwald et al. (Nature 2024) and
+> Schlegel et al. (Nature 2024). See `FLYSIM_BUILD.md §1` and `LICENSE §4`.
+
 ## Build & run
 
 ```sh
-# 1. data (not in git — large). Synthetic:
-clang -std=c99 -O2 tools/flypack.c -o build/flypack
-build/flypack synth data/flysim.bin
-# or the real connectome (needs the FlyWire feather + annotations TSV, see §1):
-python3 -m pip install --user pyarrow pandas
-python3 tools/convert_flywire.py data/proofread_connections_783.feather \
-        data/annotations.tsv data/flysim_real.bin
+# 1. data — real connectome (or `build/flypack synth data/flysim.bin` for synthetic)
+./tools/fetch_data.sh
 
 # 2. the app (links Metal)
 make -C app run
