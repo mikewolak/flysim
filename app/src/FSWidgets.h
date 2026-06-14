@@ -53,4 +53,23 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)clearHistory;
 @end
 
+// Animated, anatomically-styled lateral view of the fly head performing the
+// Proboscis Extension Reflex. `extension` (0..1, from MN9 → angle) unfolds the
+// segmented proboscis (rostrum → haustellum → labellum). With `foodPresent`, a
+// sugar droplet sits in reach; when the labellum touches it, `labellumContact`
+// goes YES, the labellar lobes spread, and ripples spread through the drop —
+// the closed feeding loop. Pure CoreGraphics; no assets.
+@interface FSFlyView : NSView
+@property (nonatomic) CGFloat extension;            // 0..1 proboscis pose
+@property (nonatomic) CGFloat mn9Hz;                // for the overlay caption
+@property (nonatomic) CGFloat smellDrive;           // 0..1 olfactory firing → walk
+@property (nonatomic) BOOL    foodPresent;          // draw the sugar droplet
+@property (nonatomic) BOOL    showLabels;           // anatomical part labels
+@property (nonatomic, readonly) BOOL labellumContact; // tip is touching food
+@property (nonatomic, readonly) BOOL arrivedAtFood;   // walked over & standing on the food
+// Odor concentration (0..1) the fly's antennae currently sense at its position —
+// the controller clamps the olfactory ORNs to this, so smell = real proximity.
+@property (nonatomic, readonly) CGFloat perceivedOdor;
+@end
+
 NS_ASSUME_NONNULL_END

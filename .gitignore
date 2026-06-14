@@ -12,7 +12,9 @@ data/
 *.csv.gz
 
 # generated reports / screenshots
+# (committed docs imagery under docs/ is kept; everything else .png is ignored)
 *.png
+!docs/*.png
 flysim_compare*.html
 
 # python

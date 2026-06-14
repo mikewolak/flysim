@@ -32,6 +32,7 @@ all: $(APP_BUNDLE)
 $(APP_BUNDLE): $(BINARY) Resources/Info.plist bin
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	@cp Resources/Info.plist $(APP_BUNDLE)/Contents/Info.plist
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns 2>/dev/null || true
 	@cp $(DATA_BIN)  $(APP_BUNDLE)/Contents/Resources/flysim_real.bin 2>/dev/null || true
 	@cp $(SYNTH_BIN) $(APP_BUNDLE)/Contents/Resources/flysim.bin 2>/dev/null || true
 	@echo "Built $(APP_BUNDLE)"

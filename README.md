@@ -7,6 +7,16 @@ connectome (139,266 neurons / 16.8M synapses) run as a leaky integrate-and-fire
 network on Apple Silicon, with a Logic-Pro-styled Cocoa GUI and a full MCP
 control plane. See `FLYSIM_BUILD.md` for the design.
 
+![FlySim](docs/screenshot.png)
+
+Drive any of the fly's **senses** (taste · smell · touch · heat · humidity ·
+vision — every one a tagged afferent population from the real connectome) and
+watch every **output** (MN9 / motor neurons / descending command neurons) fire
+in real time. Place a drop of sugar and the animated fly **smells its way to it**
+— climbing the odor gradient with its antennae (real olfactory ORN firing), then
+extending its proboscis to drink once it tastes it. Drag the food and it turns
+around and re-finds it.
+
 ## Performance — the whole fly brain, faster than life
 
 **3.76× biological real-time** for the entire 139k-neuron / 16.8M-synapse
@@ -92,8 +102,32 @@ clang -std=c99 -O2 tools/flycompare.c build/flysim_cpu.o build/flysim_metal.o \
 build/flycompare data/flysim_real.bin 150 200 300 build/flysim_compare.html
 ```
 
+## Senses in, motor out
+
+Every sensory class in the connectome is tagged and clampable, and every output
+population is readable — so an LLM (or `curl`) can drive any input and watch any
+output close the loop:
+
+| in (afferent clamp) | population | out (readout) | population |
+|---|--:|---|--:|
+| `sugar` / `water` taste | 129 | `mn9` proboscis motor | 12 |
+| `bitter` taste | 65 | `feeding` interneurons | — |
+| `smell` (olfactory ORNs) | 2,282 | `motor` (all motor neurons) | 110 |
+| `touch` (mechanosensory) | 2,671 | `descending` (brain→body) | 1,303 |
+| `heat` (thermo) · `humidity` (hygro) | 29 · 74 | | |
+| `light` (photoreceptors R1-6/R7/R8) | 11,385 | | |
+
 ## MCP
 
-With the app running: `curl 127.0.0.1:7777/tools` lists every control (run/stop/
-step/clamp/backend/speed/…) and data endpoint (`/data`, `/data/regions`,
-`/data/rates`, …). `curl -N 127.0.0.1:7777/stream?hz=60` watches outputs live.
+With the app running, `curl 127.0.0.1:7777/tools` lists every control. Highlights:
+
+```sh
+curl 127.0.0.1:7777/data/sensory                 # all senses in (Hz)
+curl 127.0.0.1:7777/data/motor                   # mn9 / motor / descending out
+curl 127.0.0.1:7777/data/populations             # every clampable population + size
+curl -XPOST 127.0.0.1:7777/tool/clamp -d '{"modality":"smell","hz":150}'
+curl -XPOST 127.0.0.1:7777/tool/clamp_set -d '{"kind":"superclass","name":"descending"}'
+curl -XPOST 127.0.0.1:7777/tool/food  -d '{"on":true}'   # drop sugar; the fly hunts it
+curl 127.0.0.1:7777/data/behavior                # the fly: walking/arrived/feeding
+curl -N 127.0.0.1:7777/stream?hz=60              # watch everything live (SSE)
+```

@@ -14,6 +14,8 @@
 
     // resolved sets (indices into the model)
     FlySet _sugar, _water, _bitter, _mn9, _l2;
+    FlySet _smell, _touch, _heat, _humid, _light;   // the rest of the senses
+    FlySet _motor, _dn;                              // motor + descending outputs
 
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
@@ -37,11 +39,7 @@
     _neuronCount = flysim_neuron_count(_sim);
     _edgeCount   = flysim_edge_count(_sim);
 
-    _sugar  = flysim_set_by_modality(_sim, MOD_GUSTATORY_SUGAR, -1);
-    _water  = flysim_set_by_modality(_sim, MOD_GUSTATORY_WATER, -1);
-    _bitter = flysim_set_by_modality(_sim, MOD_GUSTATORY_BITTER, -1);
-    _mn9    = flysim_set_by_celltype(_sim, "MN9");
-    _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
+    [self _resolveSets];
     flysim_set_eventdriven(_sim, _eventDriven);
 
     mach_timebase_info_data_t tb; mach_timebase_info(&tb);
@@ -54,6 +52,64 @@
 - (void)dealloc {
     [self stop];
     if (_sim) flysim_close(_sim);
+}
+
+// resolve every named population we clamp or read (called at open + reset)
+- (void)_resolveSets {
+    _sugar  = flysim_set_by_modality(_sim, MOD_GUSTATORY_SUGAR,  -1);
+    _water  = flysim_set_by_modality(_sim, MOD_GUSTATORY_WATER,  -1);
+    _bitter = flysim_set_by_modality(_sim, MOD_GUSTATORY_BITTER, -1);
+    _smell  = flysim_set_by_modality(_sim, MOD_OLFACTORY,        -1);
+    _touch  = flysim_set_by_modality(_sim, MOD_MECHANO_ANTENNA,  -1);
+    _heat   = flysim_set_by_modality(_sim, MOD_THERMO,           -1);
+    _humid  = flysim_set_by_modality(_sim, MOD_HYGRO,            -1);
+    _light  = flysim_set_by_modality(_sim, MOD_VISUAL,           -1);
+    _motor  = flysim_set_by_superclass(_sim, SC_MOTOR,           -1);
+    _dn     = flysim_set_by_superclass(_sim, SC_DESCENDING,      -1);
+    _mn9    = flysim_set_by_celltype(_sim, "MN9");
+    _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
+}
+
+// apply every UI sensory clamp to the model (called each sim chunk + on step)
+- (void)_applyClamps {
+    flysim_clamp(_sim, _sugar,  self.sugarHz);
+    flysim_clamp(_sim, _water,  self.waterHz);
+    flysim_clamp(_sim, _bitter, self.bitterHz);
+    flysim_clamp(_sim, _smell,  self.smellHz);
+    flysim_clamp(_sim, _touch,  self.touchHz);
+    flysim_clamp(_sim, _heat,   self.heatHz);
+    flysim_clamp(_sim, _humid,  self.humidityHz);
+    flysim_clamp(_sim, _light,  self.lightHz);
+}
+
+// map a friendly sensory name → FlyModality, or -1
+static int FSModalityForName(NSString *n) {
+    n = n.lowercaseString;
+    if ([n isEqualToString:@"sugar"])  return MOD_GUSTATORY_SUGAR;
+    if ([n isEqualToString:@"water"])  return MOD_GUSTATORY_WATER;
+    if ([n isEqualToString:@"bitter"]) return MOD_GUSTATORY_BITTER;
+    if ([n isEqualToString:@"smell"] || [n isEqualToString:@"olfactory"]) return MOD_OLFACTORY;
+    if ([n isEqualToString:@"touch"] || [n isEqualToString:@"mechano"] ||
+        [n isEqualToString:@"mechanosensory"]) return MOD_MECHANO_ANTENNA;
+    if ([n isEqualToString:@"heat"]  || [n isEqualToString:@"thermo"]) return MOD_THERMO;
+    if ([n isEqualToString:@"humidity"] || [n isEqualToString:@"hygro"]) return MOD_HYGRO;
+    if ([n isEqualToString:@"light"] || [n isEqualToString:@"visual"] ||
+        [n isEqualToString:@"vision"]) return MOD_VISUAL;
+    return -1;
+}
+// map a friendly superclass name → FlySuperclass, or -1
+static int FSSuperclassForName(NSString *n) {
+    n = n.lowercaseString;
+    if ([n isEqualToString:@"sensory"])    return SC_SENSORY;
+    if ([n isEqualToString:@"motor"])      return SC_MOTOR;
+    if ([n isEqualToString:@"descending"]) return SC_DESCENDING;
+    if ([n isEqualToString:@"ascending"])  return SC_ASCENDING;
+    if ([n isEqualToString:@"endocrine"])  return SC_ENDOCRINE;
+    if ([n isEqualToString:@"central"])    return SC_CENTRAL;
+    if ([n isEqualToString:@"optic"])      return SC_OPTIC;
+    if ([n isEqualToString:@"visual_projection"])  return SC_VISUAL_PROJECTION;
+    if ([n isEqualToString:@"visual_centrifugal"]) return SC_VISUAL_CENTRIFUGAL;
+    return -1;
 }
 
 - (BOOL)usingGPU { return flysim_backend(_sim) == FLYSIM_GPU; }
@@ -100,12 +156,8 @@
     if (path) {
         flysim_close(_sim);
         _sim = flysim_open(path.fileSystemRepresentation, FLYSIM_CPU);
-        _sugar  = flysim_set_by_modality(_sim, MOD_GUSTATORY_SUGAR, -1);
-        _water  = flysim_set_by_modality(_sim, MOD_GUSTATORY_WATER, -1);
-        _bitter = flysim_set_by_modality(_sim, MOD_GUSTATORY_BITTER, -1);
-        _mn9    = flysim_set_by_celltype(_sim, "MN9");
-        _l2     = flysim_set_by_celltype(_sim, "feeding_interneuron");
-    flysim_set_eventdriven(_sim, _eventDriven);
+        [self _resolveSets];
+        flysim_set_eventdriven(_sim, _eventDriven);
         if (_wantGPU) flysim_set_backend(_sim, FLYSIM_GPU);   // keep backend across reset
     }
     os_unfair_lock_lock(&_lock);
@@ -131,9 +183,7 @@
             _pendingBackend = 0;
         }
         // apply UI stimulus to the model
-        flysim_clamp(_sim, _sugar,  self.sugarHz);
-        flysim_clamp(_sim, _water,  self.waterHz);
-        flysim_clamp(_sim, _bitter, self.bitterHz);
+        [self _applyClamps];
 
         flysim_run(_sim, dt, K);
         stepAcc += K;
@@ -175,7 +225,14 @@
     s.sugarRate  = flysim_set_rate(_sim, _sugar);
     s.waterRate  = flysim_set_rate(_sim, _water);
     s.bitterRate = flysim_set_rate(_sim, _bitter);
+    s.smellRate  = flysim_set_rate(_sim, _smell);
+    s.touchRate  = flysim_set_rate(_sim, _touch);
+    s.heatRate   = flysim_set_rate(_sim, _heat);
+    s.humidRate  = flysim_set_rate(_sim, _humid);
+    s.lightRate  = flysim_set_rate(_sim, _light);
     s.l2Rate     = flysim_set_rate(_sim, _l2);
+    s.motorRate  = flysim_set_rate(_sim, _motor);
+    s.dnRate     = flysim_set_rate(_sim, _dn);
     s.lastSpikes = flysim_last_spike_count(_sim);
     s.simTime    = flysim_sim_time(_sim);
 
@@ -209,9 +266,7 @@
 - (void)stepK:(int)k {
     if (_runFlag) return;            // deterministic stepping only while paused
     if (k <= 0) k = 1;
-    flysim_clamp(_sim, _sugar,  self.sugarHz);
-    flysim_clamp(_sim, _water,  self.waterHz);
-    flysim_clamp(_sim, _bitter, self.bitterHz);
+    [self _applyClamps];
     flysim_run(_sim, 0.001f, k);
     [self _publish];
 }
@@ -224,6 +279,80 @@
         @"feeding": @(flysim_set_rate(_sim, _l2)),
         @"mn9":     @(flysim_set_rate(_sim, _mn9)),
     };
+}
+
+- (NSDictionary *)sensoryRates {     // every input, mean Hz
+    return @{
+        @"sugar":    @(flysim_set_rate(_sim, _sugar)),
+        @"water":    @(flysim_set_rate(_sim, _water)),
+        @"bitter":   @(flysim_set_rate(_sim, _bitter)),
+        @"smell":    @(flysim_set_rate(_sim, _smell)),
+        @"touch":    @(flysim_set_rate(_sim, _touch)),
+        @"heat":     @(flysim_set_rate(_sim, _heat)),
+        @"humidity": @(flysim_set_rate(_sim, _humid)),
+        @"light":    @(flysim_set_rate(_sim, _light)),
+    };
+}
+
+- (NSDictionary *)motorRates {       // every output, mean Hz
+    return @{
+        @"mn9":        @(flysim_set_rate(_sim, _mn9)),
+        @"feeding":    @(flysim_set_rate(_sim, _l2)),
+        @"motor":      @(flysim_set_rate(_sim, _motor)),
+        @"descending": @(flysim_set_rate(_sim, _dn)),
+    };
+}
+
+- (NSDictionary *)populations {      // discovery: name → {clampable, size}
+    #define POP(nm,set,clamp) nm: @{@"size":@(flysim_set_size(_sim,set)),@"clampable":@(clamp)}
+    return @{
+        POP(@"sugar",_sugar,YES),  POP(@"water",_water,YES),  POP(@"bitter",_bitter,YES),
+        POP(@"smell",_smell,YES),  POP(@"touch",_touch,YES),  POP(@"heat",_heat,YES),
+        POP(@"humidity",_humid,YES), POP(@"light",_light,YES),
+        POP(@"feeding",_l2,NO),    POP(@"mn9",_mn9,NO),
+        POP(@"motor",_motor,NO),   POP(@"descending",_dn,NO),
+    };
+    #undef POP
+}
+
+- (NSDictionary *)clampKind:(NSString *)kind name:(NSString *)name
+                       side:(int)side hz:(float)hz {
+    FlySet set = FLYSET_NONE; BOOL ok = NO;
+    NSString *k = kind.lowercaseString;
+    if ([k isEqualToString:@"modality"]) {
+        int m = FSModalityForName(name);
+        if (m >= 0) { set = flysim_set_by_modality(_sim, (FlyModality)m, side); ok = YES; }
+    } else if ([k isEqualToString:@"superclass"]) {
+        int sc = FSSuperclassForName(name);
+        if (sc >= 0) { set = flysim_set_by_superclass(_sim, (uint8_t)sc, side); ok = YES; }
+    } else if ([k isEqualToString:@"celltype"]) {
+        set = flysim_set_by_celltype(_sim, name.UTF8String); ok = YES;
+    }
+    if (!ok) return @{@"ok":@NO, @"error":@"kind must be modality|superclass|celltype with a known name"};
+    uint32_t sz = flysim_set_size(_sim, set);
+    if (sz == 0) return @{@"ok":@NO, @"size":@0,
+        @"error":[NSString stringWithFormat:@"no neurons matched %@ '%@'", kind, name]};
+    flysim_clamp(_sim, set, hz);
+    return @{@"ok":@YES, @"kind":kind, @"name":name, @"side":@(side),
+             @"hz":@(hz), @"size":@(sz), @"rate":@(flysim_set_rate(_sim, set))};
+}
+
+- (NSDictionary *)readKind:(NSString *)kind name:(NSString *)name side:(int)side {
+    FlySet set = FLYSET_NONE; BOOL ok = NO;
+    NSString *k = kind.lowercaseString;
+    if ([k isEqualToString:@"modality"]) {
+        int m = FSModalityForName(name);
+        if (m >= 0) { set = flysim_set_by_modality(_sim, (FlyModality)m, side); ok = YES; }
+    } else if ([k isEqualToString:@"superclass"]) {
+        int sc = FSSuperclassForName(name);
+        if (sc >= 0) { set = flysim_set_by_superclass(_sim, (uint8_t)sc, side); ok = YES; }
+    } else if ([k isEqualToString:@"celltype"]) {
+        set = flysim_set_by_celltype(_sim, name.UTF8String); ok = YES;
+    }
+    if (!ok) return @{@"ok":@NO, @"error":@"kind must be modality|superclass|celltype with a known name"};
+    uint32_t sz = flysim_set_size(_sim, set);
+    return @{@"ok":@YES, @"kind":kind, @"name":name, @"side":@(side),
+             @"size":@(sz), @"rate":@(sz ? flysim_set_rate(_sim, set) : 0)};
 }
 
 - (NSDictionary *)telemetry {
@@ -245,9 +374,20 @@
             @"feeding": @(s.l2Rate),
             @"mn9":     @(s.mn9Rate),
         },
-        @"clamp": @{ @"sugar_hz":@(self.sugarHz),
-                     @"water_hz":@(self.waterHz),
-                     @"bitter_hz":@(self.bitterHz) },
+        @"sensory": @{
+            @"sugar":   @(s.sugarRate),  @"water":   @(s.waterRate),
+            @"bitter":  @(s.bitterRate), @"smell":   @(s.smellRate),
+            @"touch":   @(s.touchRate),  @"heat":    @(s.heatRate),
+            @"humidity":@(s.humidRate),  @"light":   @(s.lightRate),
+        },
+        @"motor": @{
+            @"mn9":        @(s.mn9Rate),   @"feeding":    @(s.l2Rate),
+            @"motor":      @(s.motorRate), @"descending": @(s.dnRate),
+        },
+        @"clamp": @{ @"sugar_hz":@(self.sugarHz),  @"water_hz":@(self.waterHz),
+                     @"bitter_hz":@(self.bitterHz), @"smell_hz":@(self.smellHz),
+                     @"touch_hz":@(self.touchHz),   @"heat_hz":@(self.heatHz),
+                     @"humidity_hz":@(self.humidityHz),@"light_hz":@(self.lightHz) },
     };
 }
 
@@ -259,8 +399,15 @@
             @"sugar_grn":  @(flysim_set_size(_sim, _sugar)),
             @"water_grn":  @(flysim_set_size(_sim, _water)),
             @"bitter_grn": @(flysim_set_size(_sim, _bitter)),
+            @"smell_orn":  @(flysim_set_size(_sim, _smell)),
+            @"touch":      @(flysim_set_size(_sim, _touch)),
+            @"heat":       @(flysim_set_size(_sim, _heat)),
+            @"humidity":   @(flysim_set_size(_sim, _humid)),
+            @"light_photoreceptor": @(flysim_set_size(_sim, _light)),
             @"feeding":    @(flysim_set_size(_sim, _l2)),
             @"mn9":        @(flysim_set_size(_sim, _mn9)),
+            @"motor":      @(flysim_set_size(_sim, _motor)),
+            @"descending": @(flysim_set_size(_sim, _dn)),
         },
         @"params": @{
             @"dt_ms":@1, @"v_rest_mv":@(-52), @"v_thresh_mv":@(-45),

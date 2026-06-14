@@ -23,8 +23,9 @@ SC = {"":0,"sensory":1,"motor":2,"descending":3,"ascending":4,"endocrine":5,
 NT = {"acetylcholine":1,"gaba":2,"glutamate":3,"dopamine":4,"serotonin":5,"octopamine":6}
 NT_SIGN = {0:0.0, 1:1.0, 2:-1.0, 3:-1.0, 4:0.0, 5:0.0, 6:0.0}  # ACh +, GABA/Glut -
 SIDE = {"left":0,"right":1,"center":2,"":2}
-# modality enum
+# modality enum (mirror flysim_format.h FlyModality)
 MOD_SUGAR, MOD_WATER, MOD_BITTER, MOD_MECHANO = 1,2,3,4
+MOD_OLFACTORY, MOD_VISUAL, MOD_THERMO, MOD_HYGRO = 5,6,7,8
 
 def main():
     conn_path, ann_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -70,13 +71,22 @@ def main():
     sup[ann_row]  = [SC.get(str(s).strip().lower(),0)   for s in ann["super_class"]]
     side[ann_row] = [SIDE.get(str(s).strip().lower(),2) for s in ann["side"]]
 
-    # modality from gustatory sub-class
+    # modality from sensory cell_class / sub-class — the full sensory repertoire
     sub = ann["cell_sub_class"].astype(str).str.lower()
     cls = ann["cell_class"].astype(str).str.lower()
     modv = np.zeros(len(ann), np.uint8)
+    # gustatory (taste) — split by sub-class
     modv[(sub=="sugar/water").to_numpy()] = MOD_SUGAR
     modv[(sub=="bitter").to_numpy()]      = MOD_BITTER
-    modv[((cls=="mechanosensory")&(modv==0)).to_numpy()] = MOD_MECHANO
+    # the rest of each sensory class (only where not already a gustatory subtype)
+    modv[((cls=="olfactory")     &(modv==0)).to_numpy()] = MOD_OLFACTORY    # smell
+    modv[((cls=="mechanosensory")&(modv==0)).to_numpy()] = MOD_MECHANO      # touch
+    modv[((cls=="thermosensory") &(modv==0)).to_numpy()] = MOD_THERMO       # heat
+    modv[((cls=="hygrosensory")  &(modv==0)).to_numpy()] = MOD_HYGRO        # humidity
+    # vision: the retinal photoreceptors (R1-6/R7/R8 + ocellar) are cell_class
+    # "visual" under super_class sensory — the real light input. The ~77k "optic"
+    # neurons are downstream interneurons and are left intrinsic.
+    modv[((cls=="visual")        &(modv==0)).to_numpy()] = MOD_VISUAL       # light
     modd[ann_row] = modv
 
     # ---- string table for cell_type (+ "MN9" alias computed below) ----
@@ -159,8 +169,12 @@ def main():
         f.write(rootid.tobytes()); f.write(ctype.tobytes()); f.write(bytes(strtab))
 
     print(f"DONE  {out_path}  N={N:,} E={E:,}  ({file_bytes/1e6:.1f} MB)", flush=True)
-    print(f"  sugar GRNs={int((modd==MOD_SUGAR).sum())} bitter={int((modd==MOD_BITTER).sum())} "
-          f"motor={len(motor_rows)} MN9={len(mn9_rows)}", flush=True)
+    print(f"  sensory: sugar/water={int((modd==MOD_SUGAR).sum())} "
+          f"bitter={int((modd==MOD_BITTER).sum())} smell={int((modd==MOD_OLFACTORY).sum())} "
+          f"touch={int((modd==MOD_MECHANO).sum())} heat={int((modd==MOD_THERMO).sum())} "
+          f"humidity={int((modd==MOD_HYGRO).sum())} light={int((modd==MOD_VISUAL).sum())}", flush=True)
+    print(f"  motor={int((sup==SC['motor']).sum())} descending={int((sup==SC['descending']).sum())} "
+          f"MN9={len(mn9_rows)}", flush=True)
 
 if __name__ == "__main__":
     main()

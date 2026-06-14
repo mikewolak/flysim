@@ -7,9 +7,11 @@
 #import "FSWidgets.h"
 #import "FSControlServer.h"
 
-// proboscis mapping (§8.1) — synthetic MN9 runs hot, so scale to its range
-#define R_LO   8.0f
-#define R_HI   180.0f
+// proboscis mapping (§8.1): MN9 firing rate (Hz) → extension fraction. Tuned so
+// a real sugar response (MN9 ~40–55 Hz on the FlyWire brain) drives a full,
+// visible extension that reaches the food and closes the feeding loop.
+#define R_LO   5.0f
+#define R_HI   55.0f
 #define MAX_EXT_DEG 42.0f
 
 @interface FSBackdrop : NSView @end
@@ -25,13 +27,20 @@
 @implementation MainWindowController {
     FlyController *_fly;
 
-    FSButton *_sugarBtn, *_waterBtn, *_bitterBtn;
+    NSMutableDictionary<NSString *, FSButton *> *_senseBtns;   // name -> button
     NSSlider *_strength;
     NSTextField *_strengthLabel;
 
     FSActivityView *_activity;
-    FSMeter *_mn9Meter, *_sugarMeter, *_l2Meter, *_proboscisMeter;
+    FSMeter *_mn9Meter, *_l2Meter, *_dnMeter, *_motorMeter, *_proboscisMeter;
     NSTextField *_mn9Hz, *_proboscisDeg;
+    FSFlyView *_flyView;
+    FSButton  *_foodBtn;
+    BOOL       _feeding;          // edge-tracks arrived-at-food (closed loop)
+
+    // generic "any population" lab control (Settings tab)
+    NSPopUpButton *_genKind;
+    NSTextField *_genName, *_genHz, *_genResult;
 
     NSButton *_runBtn, *_resetBtn;
     NSSegmentedControl *_backendSeg;
@@ -54,7 +63,7 @@
 }
 
 - (instancetype)init {
-    NSRect frame = NSMakeRect(0, 0, 940, 624);
+    NSRect frame = NSMakeRect(0, 0, 1040, 820);
     NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                      | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
     NSWindow *win = [[NSWindow alloc] initWithContentRect:frame styleMask:style
@@ -64,7 +73,7 @@
     win.title = @"FlySim — Connectome Reflex";
     win.titlebarAppearsTransparent = YES;
     win.titleVisibility = NSWindowTitleHidden;
-    win.minSize = NSMakeSize(860, 560);
+    win.minSize = NSMakeSize(980, 760);
     win.delegate = self;
     win.releasedWhenClosed = NO;
     if (@available(macOS 10.14, *)) win.appearance =
@@ -112,19 +121,19 @@
     bar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [root addSubview:bar];
 
-    CGFloat top = 64, pad = 16, botH = 132;
+    CGFloat top = 64, pad = 16, botH = 340;
 
     // ---- stimulus panel (left) -------------------------------------------
     _stimPanel = [[FSPanel alloc] initWithFrame:
-        NSMakeRect(pad, top, 224, H - top - botH - pad)];
-    _stimPanel.title = @"Stimulus  ·  Afferent clamp";
+        NSMakeRect(pad, top, 268, H - top - botH - pad)];
+    _stimPanel.title = @"Stimulus  ·  the senses (afferent clamp)";
     _stimPanel.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [root addSubview:_stimPanel];
     [self _fillStimPanel:_stimPanel];
 
     // ---- activity heatmap (center, fills) --------------------------------
     _brainPanel = [[FSPanel alloc] initWithFrame:
-        NSMakeRect(pad+224+12, top, W - (pad+224+12) - pad, H - top - botH - pad)];
+        NSMakeRect(pad+268+12, top, W - (pad+268+12) - pad, H - top - botH - pad)];
     _brainPanel.title = @"Population activity  ·  firing rate";
     _brainPanel.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [root addSubview:_brainPanel];
@@ -168,7 +177,7 @@
     // demo hook: FLYSIM_AUTODEMO=1 auto-runs with sugar clamped (for screenshots)
     if (_fly && getenv("FLYSIM_AUTODEMO")) {
         [_fly start]; _runBtn.title = @"■  STOP";
-        _sugarBtn.isOn = YES; [self _applyStim];
+        _foodBtn.isOn = YES; [self _foodToggled:nil];   // place food → smell → walk → feed
     }
     if (getenv("FLYSIM_SHOW_SETTINGS")) [self _toggleSettings:nil];
 }
@@ -246,67 +255,75 @@
     return b;
 }
 
+// the full sensory repertoire (each maps to a tagged afferent population)
+- (NSArray<NSDictionary *> *)_senses {
+    NSColor *(^c)(int,int,int) = ^NSColor*(int r,int g,int b){
+        return [NSColor colorWithSRGBRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1]; };
+    return @[
+        @{@"name":@"sugar",   @"label":@"SUGAR",   @"sub":@"taste · sweet",  @"tint":[FSStyle sugar]},
+        @{@"name":@"smell",   @"label":@"SMELL",   @"sub":@"olfactory · walk",@"tint":[FSStyle output]},
+        @{@"name":@"water",   @"label":@"WATER",   @"sub":@"taste · water",  @"tint":[FSStyle water]},
+        @{@"name":@"touch",   @"label":@"TOUCH",   @"sub":@"mechanosensory", @"tint":c(190,193,200)},
+        @{@"name":@"bitter",  @"label":@"BITTER",  @"sub":@"taste · veto",   @"tint":[FSStyle bitter]},
+        @{@"name":@"heat",    @"label":@"HEAT",    @"sub":@"thermosensory",  @"tint":c(255,120,60)},
+        @{@"name":@"humidity",@"label":@"HUMIDITY",@"sub":@"hygrosensory",   @"tint":c(120,180,255)},
+        @{@"name":@"light",   @"label":@"LIGHT",   @"sub":@"visual · eyes",  @"tint":c(255,228,90)},
+    ];
+}
+
 - (void)_fillStimPanel:(FSPanel *)p {
-    CGFloat w = p.bounds.size.width - 28, x = 14, y = 38;
+    CGFloat W = p.bounds.size.width, x = 12, y = 38;
+    CGFloat gap = 8, colW = (W - 2*x - gap)/2, bh = 46, bv = bh + 8;
 
-    _sugarBtn  = [self _stim:@"SUGAR"  sub:@"gustatory · appetitive"
-                        tint:[FSStyle sugar]  at:NSMakeRect(x,y,w,52)];
-    _waterBtn  = [self _stim:@"WATER"  sub:@"gustatory · shares path"
-                        tint:[FSStyle water]  at:NSMakeRect(x,y+62,w,52)];
-    _bitterBtn = [self _stim:@"BITTER" sub:@"aversive · GABA veto"
-                        tint:[FSStyle bitter] at:NSMakeRect(x,y+124,w,52)];
-    [p addSubview:_sugarBtn]; [p addSubview:_waterBtn]; [p addSubview:_bitterBtn];
+    NSArray *senses = [self _senses];
+    _senseBtns = [NSMutableDictionary dictionary];
+    for (NSUInteger i = 0; i < senses.count; i++) {
+        NSDictionary *d = senses[i];
+        NSInteger col = i % 2, row = i / 2;
+        FSButton *b = [[FSButton alloc] initWithFrame:
+            NSMakeRect(x + col*(colW+gap), y + row*bv, colW, bh)];
+        b.label = d[@"label"]; b.sublabel = d[@"sub"]; b.tint = d[@"tint"];
+        b.identifier = d[@"name"];
+        b.target = self; b.action = @selector(_senseToggled:);
+        [p addSubview:b];
+        _senseBtns[d[@"name"]] = b;
+    }
 
-    NSTextField *sl = [NSTextField labelWithString:@"CLAMP RATE"];
+    CGFloat sy = y + ((senses.count + 1) / 2) * bv + 8;
+    NSTextField *sl = [NSTextField labelWithString:@"CLAMP RATE  (Hz applied to whichever senses are lit)"];
     sl.font = [FSStyle mono:9 weight:NSFontWeightSemibold];
     sl.textColor = [FSStyle labelDim];
-    sl.frame = NSMakeRect(x, y+196, w, 14);
+    sl.frame = NSMakeRect(x, sy, W-2*x, 14);
     [p addSubview:sl];
 
     _strength = [NSSlider sliderWithValue:150 minValue:0 maxValue:200
                                     target:self action:@selector(_strengthChanged:)];
-    _strength.frame = NSMakeRect(x, y+212, w, 22);
+    _strength.frame = NSMakeRect(x, sy+16, W-2*x, 22);
     [p addSubview:_strength];
 
     _strengthLabel = [NSTextField labelWithString:@"150 Hz"];
     _strengthLabel.font = [FSStyle mono:11 weight:NSFontWeightMedium];
     _strengthLabel.textColor = [FSStyle label];
-    _strengthLabel.frame = NSMakeRect(x, y+236, w, 16);
+    _strengthLabel.frame = NSMakeRect(x, sy+40, W-2*x, 16);
     [p addSubview:_strengthLabel];
 }
 
-- (FSButton *)_stim:(NSString *)label sub:(NSString *)sub tint:(NSColor *)tint
-                 at:(NSRect)f {
-    FSButton *b = [[FSButton alloc] initWithFrame:f];
-    b.label = label; b.sublabel = sub; b.tint = tint;
-    b.target = self; b.action = @selector(_stimToggled:);
-    return b;
-}
-
 - (void)_fillOutputPanel:(FSPanel *)p {
-    CGFloat W = p.bounds.size.width;
+    CGFloat W = p.bounds.size.width, Hp = p.bounds.size.height;
 
-    // three non-overlapping columns:
-    //   col1 (left, fixed)   MN9 meter + big Hz
-    //   col2 (center, flex)  proboscis meter + degrees
-    //   col3 (right, fixed)  small input meters
-    const CGFloat C1 = 14;          // col1 left
-    const CGFloat C1W = 300;        // col1 width
-    const CGFloat C3W = 240;        // col3 width
-    const CGFloat C3 = W - 14 - C3W;// col3 left (sticks to right edge)
-    const CGFloat C2 = C1 + C1W + 28;
-    const CGFloat C2W = C3 - 24 - C2;
+    // left = numeric readouts (fixed width); right = the animated fly (flexes).
+    const CGFloat C1 = 14, C1W = 300;
 
-    // --- col1: MN9 ---
+    // --- MN9 firing rate ---
     NSTextField *mn9cap = [NSTextField labelWithString:@"MN9 FIRING RATE"];
     mn9cap.font = [FSStyle mono:9 weight:NSFontWeightSemibold];
     mn9cap.textColor = [FSStyle labelDim];
     mn9cap.frame = NSMakeRect(C1, 34, 200, 14);
     [p addSubview:mn9cap];
 
-    _mn9Meter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 52, C1W, 26)];
+    _mn9Meter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 52, C1W, 24)];
     _mn9Meter.tint = [FSStyle output];
-    _mn9Meter.autoresizingMask = NSViewMaxXMargin;     // fixed width, left-anchored
+    _mn9Meter.autoresizingMask = NSViewMaxXMargin;
     [p addSubview:_mn9Meter];
 
     _mn9Hz = [NSTextField labelWithString:@"0.0 Hz"];
@@ -316,36 +333,55 @@
     _mn9Hz.autoresizingMask = NSViewMaxXMargin;
     [p addSubview:_mn9Hz];
 
-    // --- col2: proboscis (absorbs window resize) ---
+    // --- proboscis extension ---
     NSTextField *pcap = [NSTextField labelWithString:@"PROBOSCIS EXTENSION"];
     pcap.font = [FSStyle mono:9 weight:NSFontWeightSemibold];
     pcap.textColor = [FSStyle labelDim];
-    pcap.frame = NSMakeRect(C2, 34, 220, 14);
-    pcap.autoresizingMask = NSViewWidthSizable;
+    pcap.frame = NSMakeRect(C1, 118, 220, 14);
     [p addSubview:pcap];
 
-    _proboscisMeter = [[FSMeter alloc] initWithFrame:NSMakeRect(C2, 52, C2W, 26)];
+    _proboscisMeter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 136, C1W, 24)];
     _proboscisMeter.tint = [FSStyle sugar];
-    _proboscisMeter.autoresizingMask = NSViewWidthSizable;
+    _proboscisMeter.autoresizingMask = NSViewMaxXMargin;
     [p addSubview:_proboscisMeter];
 
     _proboscisDeg = [NSTextField labelWithString:@"0°"];
     _proboscisDeg.font = [FSStyle mono:22 weight:NSFontWeightBold];
     _proboscisDeg.textColor = [FSStyle sugar];
-    _proboscisDeg.frame = NSMakeRect(C2, 80, 120, 26);
-    _proboscisDeg.autoresizingMask = NSViewWidthSizable;
+    _proboscisDeg.frame = NSMakeRect(C1, 164, 160, 26);
+    _proboscisDeg.autoresizingMask = NSViewMaxXMargin;
     [p addSubview:_proboscisDeg];
 
-    // --- col3: small input meters (fixed width, right-anchored) ---
-    _sugarMeter = [[FSMeter alloc] initWithFrame:NSMakeRect(C3, 52, C3W, 16)];
-    _sugarMeter.tint = [FSStyle sugar]; _sugarMeter.caption = @"sugar in";
-    _sugarMeter.autoresizingMask = NSViewMinXMargin;
-    [p addSubview:_sugarMeter];
-
-    _l2Meter = [[FSMeter alloc] initWithFrame:NSMakeRect(C3, 86, C3W, 16)];
+    // --- motor-output bank: the brain's actual outputs ---
+    _l2Meter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 200, C1W, 16)];
     _l2Meter.tint = [FSStyle water]; _l2Meter.caption = @"feeding interneurons";
-    _l2Meter.autoresizingMask = NSViewMinXMargin;
+    _l2Meter.autoresizingMask = NSViewMaxXMargin;
     [p addSubview:_l2Meter];
+
+    _dnMeter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 224, C1W, 16)];
+    _dnMeter.tint = [FSStyle output]; _dnMeter.caption = @"descending neurons (brain→body)";
+    _dnMeter.autoresizingMask = NSViewMaxXMargin;
+    [p addSubview:_dnMeter];
+
+    _motorMeter = [[FSMeter alloc] initWithFrame:NSMakeRect(C1, 248, C1W, 16)];
+    _motorMeter.tint = [FSStyle sugar]; _motorMeter.caption = @"all motor neurons";
+    _motorMeter.autoresizingMask = NSViewMaxXMargin;
+    [p addSubview:_motorMeter];
+
+    // --- FOOD toggle: places a sugar droplet in reach (closes the loop) ---
+    _foodBtn = [[FSButton alloc] initWithFrame:NSMakeRect(C1, Hp-48, C1W, 36)];
+    _foodBtn.label = @"PLACE FOOD"; _foodBtn.sublabel = @"sugar droplet · closes the loop";
+    _foodBtn.tint = [FSStyle sugar];
+    _foodBtn.target = self; _foodBtn.action = @selector(_foodToggled:);
+    _foodBtn.autoresizingMask = NSViewMinYMargin | NSViewMaxXMargin;
+    [p addSubview:_foodBtn];
+
+    // --- the animated fly (the star: MN9 → real proboscis motion) ---
+    CGFloat fx = C1 + C1W + 24;
+    _flyView = [[FSFlyView alloc] initWithFrame:
+        NSMakeRect(fx, 30, W - fx - 14, Hp - 40)];
+    _flyView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [p addSubview:_flyView];
 }
 
 // ---------------------------------------------------------------------------
@@ -396,14 +432,27 @@
     _strengthLabel.stringValue = [NSString stringWithFormat:@"%.0f Hz", s.doubleValue];
     [self _applyStim];
 }
-- (void)_stimToggled:(id)s { [self _applyStim]; }
+- (void)_senseToggled:(id)s { [self _applyStim]; }
 
+- (void)_foodToggled:(id)s {
+    _flyView.foodPresent = _foodBtn.isOn;
+    [self _applyStim];   // food emits odor (smell) + releases feeding clamp when removed
+}
+
+// push every lit sense's clamp into the model. Two reflex couplings: placing
+// food makes it *smell* (drives the walk), and arriving on the food makes it
+// *taste* (sustains sugar → MN9 → tongue), so the loop runs hands-free.
 - (void)_applyStim {
     if (!_fly) return;
     float hz = (float)_strength.doubleValue;
-    _fly.sugarHz  = _sugarBtn.isOn  ? hz : 0;
-    _fly.waterHz  = _waterBtn.isOn  ? hz : 0;
-    _fly.bitterHz = _bitterBtn.isOn ? hz : 0;
+    BOOL feeding = _foodBtn.isOn && _flyView.arrivedAtFood;
+    for (NSString *name in _senseBtns) {
+        if ([name isEqualToString:@"smell"]) continue;     // odor-driven; set in _tick
+        BOOL on = _senseBtns[name].isOn;
+        float v = on ? hz : 0;
+        if ([name isEqualToString:@"sugar"] && feeding) v = hz;   // taste on arrival
+        [_fly setValue:@(v) forKey:[name stringByAppendingString:@"Hz"]];
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -415,9 +464,11 @@
 
     [_activity pushBins:s.bins count:FS_BINS ceiling:120.0f];
 
+    // motor-output bank (the brain's actual outputs)
     _mn9Meter.value   = MIN(1.0, s.mn9Rate / 200.0f);
-    _sugarMeter.value = MIN(1.0, s.sugarRate / 200.0f);
     _l2Meter.value    = MIN(1.0, s.l2Rate / 200.0f);
+    _dnMeter.value    = MIN(1.0, s.dnRate / 60.0f);
+    _motorMeter.value = MIN(1.0, s.motorRate / 60.0f);
     _mn9Hz.stringValue = [NSString stringWithFormat:@"%.1f Hz", s.mn9Rate];
 
     // rate -> proboscis extension (§8.1), critically-damped follow
@@ -428,10 +479,30 @@
     _proboscisMeter.value = _proboscisAngle / MAX_EXT_DEG;
     _proboscisDeg.stringValue = [NSString stringWithFormat:@"%.0f°", _proboscisAngle];
 
-    // illuminate stim buttons by how hard their circuit is actually firing
-    _sugarBtn.glow  = MIN(1.0, s.sugarRate  / 150.0f);
-    _waterBtn.glow  = MIN(1.0, s.waterRate  / 150.0f);
-    _bitterBtn.glow = MIN(1.0, s.bitterRate / 150.0f);
+    // drive the animated fly: ORN firing → search speed; the search updates the
+    // fly's position, then we clamp the olfactory ORNs to the odor it now smells
+    // (real proximity signal); taste (MN9) → tongue.
+    _flyView.smellDrive = MIN(1.0, s.smellRate / 120.0f);
+    _flyView.foodPresent = _foodBtn.isOn;
+    _flyView.mn9Hz = s.mn9Rate;
+    _flyView.extension = _proboscisAngle / MAX_EXT_DEG;     // runs the search step
+
+    float manualSmell = _senseBtns[@"smell"].isOn ? (float)_strength.doubleValue : 0;
+    float odorSmell   = _foodBtn.isOn ? (float)(_flyView.perceivedOdor * 200.0) : 0;
+    _fly.smellHz = MAX(manualSmell, odorSmell);            // ORNs fire by what it smells
+
+    // closed loop: arriving on the food makes it taste → sustains sugar. Edge-
+    // triggered so we don't fight the clamp every frame.
+    BOOL feeding = _foodBtn.isOn && _flyView.arrivedAtFood;
+    if (feeding != _feeding) { _feeding = feeding; [self _applyStim]; }
+    _foodBtn.glow = feeding ? 1.0 : (_flyView.smellDrive > 0.1 && _foodBtn.isOn ? 0.5 : 0.0);
+
+    // illuminate each sense button by how hard its afferent population is firing
+    NSDictionary *srate = @{ @"sugar":@(s.sugarRate), @"water":@(s.waterRate),
+        @"bitter":@(s.bitterRate), @"smell":@(s.smellRate), @"touch":@(s.touchRate),
+        @"heat":@(s.heatRate), @"humidity":@(s.humidRate), @"light":@(s.lightRate) };
+    for (NSString *name in _senseBtns)
+        _senseBtns[name].glow = MIN(1.0, [srate[name] floatValue] / 150.0f);
 
     _statusRight.stringValue = [NSString stringWithFormat:
         @"%@   sim %.2fs   %.0f steps/s   %.2f× realtime   %u spk/step",
@@ -443,9 +514,10 @@
 #pragma mark - UI sync (so MCP-driven changes reflect in the panel)
 
 - (void)_syncStimUI {
-    _sugarBtn.isOn  = _fly.sugarHz  > 0;
-    _waterBtn.isOn  = _fly.waterHz  > 0;
-    _bitterBtn.isOn = _fly.bitterHz > 0;
+    for (NSString *name in _senseBtns) {
+        float hz = [[_fly valueForKey:[name stringByAppendingString:@"Hz"]] floatValue];
+        _senseBtns[name].isOn = hz > 0;
+    }
 }
 - (void)_syncTransportUI {
     _runBtn.title = _fly.running ? @"■  STOP" : @"▶  RUN";
@@ -501,11 +573,11 @@
     lab(@"QUICK START", x, y, w, [FSStyle labelDim], 10); y += 18;
     NSString *ex =
       @"curl 127.0.0.1:7777/tools                       # discover everything\n"
-      @"curl 127.0.0.1:7777/data                        # all live outputs\n"
-      @"curl -XPOST 127.0.0.1:7777/tool/run             # start the clock\n"
-      @"curl -XPOST 127.0.0.1:7777/tool/clamp -d '{\"modality\":\"sugar\",\"hz\":150}'\n"
-      @"curl -XPOST 127.0.0.1:7777/tool/step  -d '{\"k\":200}'   # paused, deterministic\n"
-      @"curl 127.0.0.1:7777/data/regions                # sugar/feeding/MN9 Hz\n"
+      @"curl 127.0.0.1:7777/data/sensory                # all senses in (Hz)\n"
+      @"curl 127.0.0.1:7777/data/motor                  # all outputs (mn9/motor/descending)\n"
+      @"curl 127.0.0.1:7777/data/populations            # every clampable population + size\n"
+      @"curl -XPOST 127.0.0.1:7777/tool/clamp -d '{\"modality\":\"smell\",\"hz\":150}'\n"
+      @"curl -XPOST 127.0.0.1:7777/tool/clamp_set -d '{\"kind\":\"superclass\",\"name\":\"descending\",\"hz\":0}'\n"
       @"curl -N 127.0.0.1:7777/stream?hz=60             # watch outputs live (SSE)";
     NSTextView *tv = [[NSTextView alloc] initWithFrame:NSMakeRect(x, y, w, 150)];
     tv.string = ex; tv.editable = NO; tv.drawsBackground = YES;
@@ -514,6 +586,58 @@
     tv.font = [FSStyle mono:11 weight:NSFontWeightRegular];
     tv.autoresizingMask = NSViewWidthSizable;
     [p addSubview:tv];
+    y += 162;
+
+    // ---- generic lab: clamp / read ANY population ------------------------
+    lab(@"LAB · drive or read ANY population (modality / superclass / cell-type)",
+        x, y, w, [FSStyle output], 12); y += 24;
+
+    _genKind = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(x, y, 132, 24) pullsDown:NO];
+    [_genKind addItemsWithTitles:@[@"modality", @"superclass", @"celltype"]];
+    _genKind.font = [FSStyle mono:11 weight:NSFontWeightMedium];
+    [p addSubview:_genKind];
+
+    _genName = [NSTextField textFieldWithString:@"smell"];
+    _genName.frame = NSMakeRect(x+142, y, 188, 24);
+    _genName.font = [FSStyle mono:12 weight:NSFontWeightMedium];
+    _genName.placeholderString = @"name (smell · descending · MN9 …)";
+    [p addSubview:_genName];
+
+    _genHz = [NSTextField textFieldWithString:@"150"];
+    _genHz.frame = NSMakeRect(x+340, y, 56, 24);
+    _genHz.font = [FSStyle mono:12 weight:NSFontWeightMedium];
+    _genHz.toolTip = @"clamp rate (Hz)";
+    [p addSubview:_genHz];
+
+    NSButton *cb = [self _chromeButton:@"Clamp" action:@selector(_genClamp:)];
+    cb.frame = NSMakeRect(x+404, y-1, 78, 26); [p addSubview:cb];
+    NSButton *rb = [self _chromeButton:@"Read" action:@selector(_genRead:)];
+    rb.frame = NSMakeRect(x+488, y-1, 78, 26); [p addSubview:rb];
+    y += 32;
+    _genResult = lab(@"resolve any of the 139,266 neurons by population and clamp or read it",
+                     x, y, w, [FSStyle labelDim], 11);
+}
+
+- (void)_genShow:(NSDictionary *)r {
+    if ([r[@"ok"] boolValue]) {
+        _genResult.stringValue = [NSString stringWithFormat:
+            @"✓ %@ '%@'  —  %@ neurons  ·  %.1f Hz",
+            r[@"kind"], r[@"name"], r[@"size"], [r[@"rate"] floatValue]];
+        _genResult.textColor = [FSStyle output];
+    } else {
+        _genResult.stringValue = [NSString stringWithFormat:@"⚠︎ %@", r[@"error"]];
+        _genResult.textColor = [FSStyle bitter];
+    }
+}
+- (void)_genClamp:(id)sender {
+    if (!_fly) return;
+    [self _genShow:[_fly clampKind:_genKind.titleOfSelectedItem
+                              name:_genName.stringValue side:-1 hz:_genHz.floatValue]];
+}
+- (void)_genRead:(id)sender {
+    if (!_fly) return;
+    [self _genShow:[_fly readKind:_genKind.titleOfSelectedItem
+                             name:_genName.stringValue side:-1]];
 }
 
 - (void)_toggleMCPEnabled:(NSButton *)b {
@@ -586,24 +710,30 @@
         (void)p;(void)e; STRONG; [s->_fly stop]; [s _syncTransportUI]; return [s->_fly telemetry]; }];
     [_mcp registerTool:@"reset" doc:@"Zero membrane state and release all clamps." handler:^id(NSDictionary *p, NSString **e){
         (void)p;(void)e; STRONG; [s _reset:nil]; [s _syncStimUI]; [s _syncTransportUI]; return [s->_fly telemetry]; }];
-    [_mcp registerTool:@"release_all" doc:@"Release every stimulus clamp." handler:^id(NSDictionary *p, NSString **e){
-        (void)p;(void)e; STRONG; s->_fly.sugarHz=s->_fly.waterHz=s->_fly.bitterHz=0; [s _syncStimUI]; return [s->_fly telemetry]; }];
+    [_mcp registerTool:@"release_all" doc:@"Release every sensory clamp." handler:^id(NSDictionary *p, NSString **e){
+        (void)p;(void)e; STRONG;
+        for (NSString *nm in s->_senseBtns) [s->_fly setValue:@0 forKey:[nm stringByAppendingString:@"Hz"]];
+        [s _syncStimUI]; return [s->_fly telemetry]; }];
     [_mcp registerTool:@"step" doc:@"Advance k 1ms steps while paused (deterministic). params: {k:int}" handler:^id(NSDictionary *p, NSString **e){
         STRONG; if (s->_fly.running) { *e = @"cannot step while running; call stop first"; return nil; }
         [s->_fly stepK:(int)[p[@"k"] integerValue]]; return [s->_fly telemetry]; }];
-    [_mcp registerTool:@"clamp" doc:@"Clamp one modality to a rate. params: {modality:'sugar'|'water'|'bitter', hz:float}" handler:^id(NSDictionary *p, NSString **e){
-        STRONG; NSString *m = p[@"modality"]; float hz = [p[@"hz"] floatValue];
-        if ([m isEqualToString:@"sugar"]) s->_fly.sugarHz = hz;
-        else if ([m isEqualToString:@"water"]) s->_fly.waterHz = hz;
-        else if ([m isEqualToString:@"bitter"]) s->_fly.bitterHz = hz;
-        else { *e = @"modality must be sugar|water|bitter"; return nil; }
-        [s _syncStimUI]; return [s->_fly telemetry]; }];
-    [_mcp registerTool:@"stimulus" doc:@"Toggle modalities at the current clamp rate. params: {sugar:bool,water:bool,bitter:bool}" handler:^id(NSDictionary *p, NSString **e){
-        (void)e; STRONG; float hz = (float)s->_strength.doubleValue;
-        if (p[@"sugar"])  s->_fly.sugarHz  = [p[@"sugar"] boolValue]  ? hz : 0;
-        if (p[@"water"])  s->_fly.waterHz  = [p[@"water"] boolValue]  ? hz : 0;
-        if (p[@"bitter"]) s->_fly.bitterHz = [p[@"bitter"] boolValue] ? hz : 0;
-        [s _syncStimUI]; return [s->_fly telemetry]; }];
+    [_mcp registerTool:@"clamp" doc:@"Clamp one sense to a rate (Hz). params: {modality:'sugar'|'water'|'bitter'|'smell'|'touch'|'heat'|'humidity'|'light', hz:float}" handler:^id(NSDictionary *p, NSString **e){
+        STRONG; NSString *m = [p[@"modality"] lowercaseString]; float hz = [p[@"hz"] floatValue];
+        FSButton *btn = s->_senseBtns[m ?: @""];
+        if (!btn) { *e = @"modality must be one of: sugar water bitter smell touch heat humidity light"; return nil; }
+        [s->_fly setValue:@(hz) forKey:[m stringByAppendingString:@"Hz"]];
+        btn.isOn = hz > 0; return [s->_fly telemetry]; }];
+    [_mcp registerTool:@"stimulus" doc:@"Toggle senses on/off at the master clamp rate. params: any of {sugar,water,bitter,smell,touch,heat,humidity,light}:bool" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG;
+        for (NSString *nm in s->_senseBtns) if (p[nm]) s->_senseBtns[nm].isOn = [p[nm] boolValue];
+        [s _applyStim]; return [s->_fly telemetry]; }];
+    [_mcp registerTool:@"clamp_set" doc:@"Clamp ANY population by name to a rate (Hz, 0 releases). params: {kind:'modality'|'superclass'|'celltype', name:string, side:-1|0|1, hz:float}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; int side = p[@"side"] ? [p[@"side"] intValue] : -1;
+        return [s->_fly clampKind:(p[@"kind"]?:@"modality") name:(p[@"name"]?:@"")
+                              side:side hz:[p[@"hz"] floatValue]]; }];
+    [_mcp registerTool:@"read_set" doc:@"Mean firing rate (Hz) of ANY population. params: {kind:'modality'|'superclass'|'celltype', name:string, side:-1|0|1}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; int side = p[@"side"] ? [p[@"side"] intValue] : -1;
+        return [s->_fly readKind:(p[@"kind"]?:@"modality") name:(p[@"name"]?:@"") side:side]; }];
     [_mcp registerTool:@"strength" doc:@"Set the master clamp rate (Hz) applied by stimulus toggles. params: {hz:float}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; double hz = [p[@"hz"] doubleValue];
         s->_strength.doubleValue = hz; [s _strengthChanged:s->_strength]; return @{@"hz":@(hz)}; }];
@@ -622,6 +752,9 @@
     [_mcp registerTool:@"eventdriven" doc:@"Toggle event-driven scatter (bit-exact, faster on the sparse real brain). params: {on:bool}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_fly.eventDriven = [p[@"on"] boolValue];
         return @{@"eventdriven": @(s->_fly.eventDriven)}; }];
+    [_mcp registerTool:@"food" doc:@"Place/remove a sugar droplet in front of the proboscis. When the labellum reaches it, the fly self-sustains the sugar clamp (closed feeding loop). params: {on:bool}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; s->_foodBtn.isOn = [p[@"on"] boolValue]; [s _foodToggled:nil];
+        return @{@"food": @(s->_foodBtn.isOn)}; }];
     [_mcp registerTool:@"sample_rate" doc:@"Set UI sampler rate (does not affect 1ms sim tick). params: {hz:60|90|120}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_sampleHz = [p[@"hz"] doubleValue] ?: 60; [s _installTimer];
         [s->_rateSel selectItemWithTitle:[NSString stringWithFormat:@"%.0f Hz", s->_sampleHz]];
@@ -631,6 +764,20 @@
     [_mcp registerData:@"/data" doc:@"Full telemetry frame: all scalar outputs + region rates + clamps." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly telemetry]; }];
     [_mcp registerData:@"/data/model" doc:@"Model facts: neuron/edge counts, named sets, LIF params." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly modelInfo]; }];
     [_mcp registerData:@"/data/regions" doc:@"Mean firing rate (Hz) per labelled circuit: sugar/water/bitter/feeding/mn9." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly regionRates]; }];
+    [_mcp registerData:@"/data/sensory" doc:@"Every sensory input, mean Hz: sugar/water/bitter/smell/touch/heat/humidity/light." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly sensoryRates]; }];
+    [_mcp registerData:@"/data/motor" doc:@"Every motor output, mean Hz: mn9/feeding/motor/descending." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly motorRates]; }];
+    [_mcp registerData:@"/data/populations" doc:@"Discovery: every named clampable/readable population + size." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly populations]; }];
+    [_mcp registerData:@"/data/behavior" doc:@"The animated fly's visible state: MN9 Hz, proboscis deg + extension, walking, arrived-at-food, labellum contact, food, feeding." provider:^id(NSDictionary *q){ (void)q; STRONG;
+        BOOL feeding = s->_foodBtn.isOn && s->_flyView.arrivedAtFood;
+        return @{ @"mn9_hz": @(s->_fly ? [s->_fly snapshot].mn9Rate : 0),
+                  @"proboscis_deg": @(s->_proboscisAngle),
+                  @"extension": @(s->_proboscisAngle / MAX_EXT_DEG),
+                  @"smell_drive": @(s->_flyView.smellDrive),
+                  @"walking": @(!s->_flyView.arrivedAtFood && s->_foodBtn.isOn && s->_flyView.smellDrive > 0.1),
+                  @"arrived": @(s->_flyView.arrivedAtFood),
+                  @"contact": @(s->_flyView.labellumContact),
+                  @"food": @(s->_foodBtn.isOn),
+                  @"feeding": @(feeding) }; }];
     [_mcp registerData:@"/data/bins" doc:@"128-bin spatial firing-rate histogram (the activity strip)." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly bins]; }];
     [_mcp registerData:@"/data/rates" doc:@"Per-neuron smoothed rate (Hz). query: ?from&to&stride (to=0=>all)." provider:^id(NSDictionary *q){
         STRONG; return [s->_fly ratesFrom:[q[@"from"] integerValue] to:[q[@"to"] integerValue]

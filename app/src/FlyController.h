@@ -16,10 +16,19 @@ NS_ASSUME_NONNULL_BEGIN
 // A consistent sample of model state for one UI frame.
 typedef struct {
     float    mn9Rate;        // Hz, smoothed
-    float    sugarRate;      // mean Hz over sugar GRNs
+    // sensory afferent populations (mean Hz)
+    float    sugarRate;      // gustatory sugar/water GRNs
     float    waterRate;
     float    bitterRate;
+    float    smellRate;      // olfactory ORNs (antennae)
+    float    touchRate;      // mechanosensory
+    float    heatRate;       // thermosensory
+    float    humidRate;      // hygrosensory
+    float    lightRate;      // visual photoreceptors
+    // efferent / output populations (mean Hz)
     float    l2Rate;         // feeding interneuron stage
+    float    motorRate;      // all motor neurons
+    float    dnRate;         // descending neurons (brain → body command lines)
     uint32_t lastSpikes;     // spikes in the most recent step
     double   simTime;        // accumulated biological seconds
     double   stepsPerSec;    // measured sim throughput
@@ -38,6 +47,11 @@ typedef struct {
 @property (atomic) float sugarHz;
 @property (atomic) float waterHz;
 @property (atomic) float bitterHz;
+@property (atomic) float smellHz;    // olfactory (drives the search/walk)
+@property (atomic) float touchHz;    // mechanosensory
+@property (atomic) float heatHz;     // thermosensory
+@property (atomic) float humidityHz;    // hygrosensory
+@property (atomic) float lightHz;    // visual photoreceptors
 
 // Sim speed cap: 1.0 == real time (1000 steps/s @ 1ms tick). <=0 == unthrottled.
 @property (atomic) double speed;
@@ -59,7 +73,18 @@ typedef struct {
 - (void)stepK:(int)k;          // advance k 1ms steps (only while paused)
 - (NSDictionary *)telemetry;   // every scalar output + bins + region rates
 - (NSDictionary *)regionRates; // {sugar,water,bitter,feeding,mn9} Hz
+- (NSDictionary *)sensoryRates;// every sensory modality mean Hz (the inputs)
+- (NSDictionary *)motorRates;  // mn9 / motor / descending mean Hz (the outputs)
+- (NSDictionary *)populations; // named clampable/readable sets + sizes
 - (NSDictionary *)modelInfo;   // N, E, named sets + sizes, sim params
+
+// Generic input control: clamp any modality / superclass / cell-type by name to
+// a rate (Hz, 0 releases). kind ∈ "modality"|"superclass"|"celltype". Returns
+// {ok,size,...} or {ok:false,error}.  Powers the MCP generic panel.
+- (NSDictionary *)clampKind:(NSString *)kind name:(NSString *)name
+                       side:(int)side hz:(float)hz;
+// Read the mean rate of any named set the same way (no clamp).
+- (NSDictionary *)readKind:(NSString *)kind name:(NSString *)name side:(int)side;
 // per-neuron arrays (sliceable): rows [from,to) by stride. to=0 => full.
 - (NSArray<NSNumber *> *)ratesFrom:(NSUInteger)from to:(NSUInteger)to stride:(NSUInteger)stride;
 - (NSArray<NSNumber *> *)spikesFrom:(NSUInteger)from to:(NSUInteger)to stride:(NSUInteger)stride;
