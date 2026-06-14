@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flysim_metal.h — C ABI for the optional Metal backend (src/flysim_metal.m).
 // Declared weak so binaries that don't link Metal (CLI tools) fall back to CPU:
 // take the address of fly_metal_available; NULL means "no GPU backend linked".
@@ -24,9 +26,12 @@ extern "C" {
 
 int   fly_metal_available(void) __attribute__((weak_import));
 void* fly_metal_create(uint32_t N, uint32_t E, const uint32_t* indptr,
-                       const uint32_t* indices, const int32_t* weights_fixed) __attribute__((weak_import));
+                       const uint32_t* indices, const int32_t* weights_fixed,
+                       const uint32_t* indptr_pre, const uint32_t* post_csr,
+                       const int32_t* wfix_csr) __attribute__((weak_import));
 void  fly_metal_destroy(void* ctx) __attribute__((weak_import));
 void  fly_metal_set_kernel(void* ctx, int warp) __attribute__((weak_import));
+void  fly_metal_set_eventdriven(void* ctx, int on) __attribute__((weak_import));
 void  fly_metal_upload_state(void* ctx, const float* V, const float* Isyn,
                              const float* refrac, const unsigned char* spike_prev,
                              const float* rate, const float* clamp_phase) __attribute__((weak_import));

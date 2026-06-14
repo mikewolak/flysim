@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flypack.c — pack a connectome into flysim.bin (CSC, signs baked). C99.
 // See FLYSIM_BUILD.md §3.
 //

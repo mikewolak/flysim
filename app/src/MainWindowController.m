@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 //  MainWindowController.m — the Logic-Pro-styled FlySim panel.
 
 #import "MainWindowController.h"
@@ -617,6 +619,9 @@
         NSInteger idx = (x<=0)?4 : (x>=8?3 : (x>=4?2 : (x>=2?1:0)));
         [s->_speedSel selectItemAtIndex:idx];
         return @{@"speed": x<=0 ? @"max" : @(x)}; }];
+    [_mcp registerTool:@"eventdriven" doc:@"Toggle event-driven scatter (bit-exact, faster on the sparse real brain). params: {on:bool}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; s->_fly.eventDriven = [p[@"on"] boolValue];
+        return @{@"eventdriven": @(s->_fly.eventDriven)}; }];
     [_mcp registerTool:@"sample_rate" doc:@"Set UI sampler rate (does not affect 1ms sim tick). params: {hz:60|90|120}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_sampleHz = [p[@"hz"] doubleValue] ?: 60; [s _installTimer];
         [s->_rateSel selectItemWithTitle:[NSString stringWithFormat:@"%.0f Hz", s->_sampleHz]];

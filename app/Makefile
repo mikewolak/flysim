@@ -1,3 +1,5 @@
+# FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+# Educational & academic research use only — commercial use prohibited.  See LICENSE.
 # Makefile — FlySim.app (native macOS Obj-C + C99 LIF core)
 # Builds build/FlySim.app. Requires only Xcode Command Line Tools.
 

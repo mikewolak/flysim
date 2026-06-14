@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 // flysim.c — CPU LIF backend + flysim_* API. C99. See FLYSIM_BUILD.md §5.
 //
 // mmap the packed connectome (read-only, zero parse), allocate membrane state,
@@ -208,7 +210,8 @@ FlyBackend flysim_set_backend(FlySim* s, FlyBackend want) {
             return FLYSIM_CPU;
         }
         if (!s->mtl) {
-            s->mtl = fly_metal_create(s->N, s->E, s->indptr, s->indices, s->wfix);
+            s->mtl = fly_metal_create(s->N, s->E, s->indptr, s->indices, s->wfix,
+                                      s->indptr_pre, s->post_csr, s->wfix_csr);
             if (!s->mtl) { fprintf(stderr, "flysim: Metal init failed\n"); return FLYSIM_CPU; }
         }
         // migrate current CPU state up to the GPU
@@ -473,7 +476,10 @@ void flysim_step(FlySim* s, float dt) {
     s->sim_time += dt;
 }
 
-void flysim_set_eventdriven(FlySim* s, int on) { s->eventdriven = on ? 1 : 0; }
+void flysim_set_eventdriven(FlySim* s, int on) {
+    s->eventdriven = on ? 1 : 0;
+    if (s->mtl && &fly_metal_set_eventdriven) fly_metal_set_eventdriven(s->mtl, s->eventdriven);
+}
 int  flysim_eventdriven(const FlySim* s) { return s->eventdriven; }
 
 void flysim_run(FlySim* s, float dt, int k) {

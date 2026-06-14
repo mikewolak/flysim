@@ -1,0 +1,39 @@
+FlySim License — Educational Use Only
+Copyright (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+
+1. GRANT. Permission is hereby granted, free of charge, to use, copy, compile,
+   and modify this software and associated source files (the "Software") SOLELY
+   for non-commercial educational and academic research purposes.
+
+2. RESTRICTIONS. You may NOT, without prior written permission from
+   Epromfoundry, Inc.:
+     (a) use the Software, in whole or in part, or any derivative work, for any
+         commercial purpose, product, service, or revenue-generating activity;
+     (b) deploy the Software in any production, clinical, diagnostic, or
+         operational system;
+     (c) redistribute, sublicense, sell, lease, or publish the Software or any
+         derivative, except to share unmodified copies with other students or
+         researchers for the educational purposes permitted in Section 1, with
+         this license and all notices kept intact;
+     (d) remove, obscure, or alter any copyright notice, attribution, or this
+         license text.
+
+3. ATTRIBUTION. Any publication, presentation, or coursework whose results were
+   produced with the Software must credit:
+     "FlySim, (c) 2026 Epromfoundry, Inc."
+
+4. THIRD-PARTY DATA. The FlyWire / FAFB connectome and any other datasets used
+   with the Software are NOT covered by this license and remain subject to their
+   own licenses, terms, and citation requirements. It is the user's
+   responsibility to comply with them.
+
+5. NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO
+   EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES,
+   OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE.
+
+6. TERMINATION. Any breach of these terms terminates this license automatically
+   and immediately.
+
+For commercial licensing inquiries, contact: mikewolak@gmail.com

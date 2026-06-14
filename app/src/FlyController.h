@@ -1,3 +1,5 @@
+// FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
+// Educational & academic research use only — commercial use prohibited.  See LICENSE.
 //  FlyController.h — Obj-C wrapper around the C LIF core.
 //
 //  Owns the FlySim*, runs the biological clock on a dedicated sim thread, and
@@ -39,6 +41,10 @@ typedef struct {
 
 // Sim speed cap: 1.0 == real time (1000 steps/s @ 1ms tick). <=0 == unthrottled.
 @property (atomic) double speed;
+
+// Event-driven scatter (default YES): only spiking neurons contribute. Bit-exact
+// vs the dense gather, far faster on the sparse real brain.
+@property (nonatomic) BOOL eventDriven;
 
 - (nullable instancetype)initWithBinPath:(NSString *)path;
 
