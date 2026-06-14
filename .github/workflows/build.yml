@@ -1,0 +1,61 @@
+# FlySim · CI — build the macOS app on GitHub's macOS runners.
+#
+# FlySim is a Cocoa + Metal + C99 app built with clang via the Makefile (no Xcode
+# project needed). The runner has the full macOS SDK, so it compiles and links
+# Metal/Cocoa fine. No connectome download is required: the Makefile auto-packs a
+# self-contained SYNTHETIC connectome (tools/flypack) so the built app is runnable
+# and the headless smoke test has data. (The 813 MB real FlyWire export is not in
+# the repo and is not needed to build.)
+
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:        # lets you trigger a build by hand from the Actions tab
+
+jobs:
+  build:
+    name: Build FlySim.app (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          clang --version
+          echo "Xcode: $(xcodebuild -version 2>/dev/null | head -1 || echo n/a)"
+
+      - name: Build app (auto-generates synthetic connectome)
+        run: make                       # top-level → make -C app
+
+      - name: Verify bundle
+        run: |
+          APP=app/build/FlySim.app
+          test -x "$APP/Contents/MacOS/FlySim" || { echo "::error::FlySim binary missing"; exit 1; }
+          test -f "$APP/Contents/Resources/AppIcon.icns" || echo "::warning::AppIcon.icns missing"
+          file "$APP/Contents/MacOS/FlySim"
+          du -sh "$APP"
+
+      - name: Headless smoke test (CPU core runs)
+        run: |
+          clang -std=c99 -O2 -c src/flysim.c -o /tmp/flysim_cpu.o
+          clang -O2 -fobjc-arc -c src/flysim_metal.m -o /tmp/flysim_metal.o
+          clang -std=c99 -O2 tools/flydrive.c /tmp/flysim_cpu.o /tmp/flysim_metal.o \
+                -framework Metal -framework Foundation -lm -o /tmp/flydrive
+          /tmp/flydrive app/build/FlySim.app/Contents/Resources/flysim_real.bin 150 0.5
+
+      - name: Package app
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent app/build/FlySim.app dist/FlySim-unsigned.app.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlySim-app-unsigned
+          path: dist/FlySim-unsigned.app.zip
+          if-no-files-found: error
