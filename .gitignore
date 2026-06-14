@@ -26,3 +26,6 @@ __pycache__/
 
 # signing secrets (developer-specific)
 signing.env
+
+# reusable CI/release recipe — local reference, kept out of the repo
+CI-RELEASE-SETUP.md
