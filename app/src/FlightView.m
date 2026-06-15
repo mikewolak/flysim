@@ -88,15 +88,63 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 }
 @end
 
+// reliable top-down schematic map (drawn from live positions, no SceneKit)
+@interface FlightMap : NSView
+@property (nonatomic) CGPoint flyXZ, foodXZ;
+@property (nonatomic) CGFloat flyYaw;
+@property (nonatomic, strong) NSArray<NSValue *> *pillars;
+@end
+@implementation FlightMap
+- (BOOL)isFlipped { return NO; }
+- (NSView *)hitTest:(NSPoint)p { (void)p; return nil; }
+- (NSPoint)_xz:(CGPoint)xz {
+    CGFloat W = self.bounds.size.width, H = self.bounds.size.height, m = 12, R = 21.0;
+    return NSMakePoint(m + (xz.x/(2*R) + 0.5)*(W-2*m),
+                       m + (0.5 - xz.y/(2*R))*(H-2*m));   // world +z → map down
+}
+- (void)drawRect:(NSRect)d {
+    (void)d; NSRect b = self.bounds;
+    NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:b xRadius:6 yRadius:6];
+    [[NSColor colorWithSRGBRed:0.04 green:0.05 blue:0.07 alpha:0.92] setFill]; [bg fill];
+    [[NSColor colorWithWhite:1 alpha:0.06] setStroke];
+    for (int i = 1; i < 4; i++) {
+        CGFloat gx = b.size.width*i/4.0, gy = b.size.height*i/4.0;
+        NSBezierPath *g = [NSBezierPath bezierPath];
+        [g moveToPoint:NSMakePoint(gx,0)]; [g lineToPoint:NSMakePoint(gx,b.size.height)];
+        [g moveToPoint:NSMakePoint(0,gy)]; [g lineToPoint:NSMakePoint(b.size.width,gy)];
+        g.lineWidth = 0.5; [g stroke];
+    }
+    [[NSColor colorWithSRGBRed:0.2 green:0.45 blue:0.65 alpha:0.8] setFill];
+    for (NSValue *v in _pillars) { NSPoint p = [self _xz:v.pointValue];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x-1.5,p.y-1.5,3,3)] fill]; }
+    NSPoint fp = [self _xz:_foodXZ];                       // food: amber diamond
+    [[NSColor colorWithSRGBRed:1 green:0.7 blue:0.25 alpha:1] setFill];
+    NSBezierPath *dia = [NSBezierPath bezierPath];
+    [dia moveToPoint:NSMakePoint(fp.x,fp.y+5)]; [dia lineToPoint:NSMakePoint(fp.x+5,fp.y)];
+    [dia lineToPoint:NSMakePoint(fp.x,fp.y-5)]; [dia lineToPoint:NSMakePoint(fp.x-5,fp.y)];
+    [dia closePath]; [dia fill];
+    NSPoint flp = [self _xz:_flyXZ];                       // fly: heading triangle
+    double ang = atan2(-cos(_flyYaw), sin(_flyYaw));       // world (sin,cos)→screen (x,-y)
+    [[NSColor colorWithSRGBRed:0.5 green:1 blue:0.7 alpha:1] setFill];
+    NSBezierPath *tri = [NSBezierPath bezierPath];
+    [tri moveToPoint:NSMakePoint(flp.x+8*cos(ang), flp.y+8*sin(ang))];
+    [tri lineToPoint:NSMakePoint(flp.x+5*cos(ang+2.4), flp.y+5*sin(ang+2.4))];
+    [tri lineToPoint:NSMakePoint(flp.x+5*cos(ang-2.4), flp.y+5*sin(ang-2.4))];
+    [tri closePath]; [tri fill];
+}
+@end
+
 @interface FlightView () <SCNSceneRendererDelegate>
 @end
 
 @implementation FlightView {
     FlyController *_fly;
-    SCNView   *_scn, *_mini;
-    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode, *_miniCam;
+    SCNView   *_scn;
+    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode;
     NSTextField *_hud;
     FlightGyro *_gyro;
+    FlightMap *_map;
+    NSMutableArray<NSValue *> *_pillarPts;   // pillar x/z for the schematic map
     BOOL _active;
 
     SCNVector3 _pos, _foodPos;
@@ -133,6 +181,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     [scene.rootNode addChildNode:[SCNNode nodeWithGeometry:floor]];
 
     // scattered glowing landmark pillars — depth + motion reference as you fly
+    _pillarPts = [NSMutableArray array];
     for (int i = 0; i < 26; i++) {
         CGFloat px = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
         CGFloat pz = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
@@ -143,6 +192,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         SCNNode *pn = [SCNNode nodeWithGeometry:cyl];
         pn.position = V3(px, h/2, pz);
         [scene.rootNode addChildNode:pn];
+        [_pillarPts addObject:[NSValue valueWithPoint:NSMakePoint(px, pz)]];
     }
 
     // food: glowing amber sphere + soft odor particles
@@ -194,15 +244,6 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     [scene.rootNode addChildNode:_camNode];
     _camNode.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode]];
 
-    // external 3/4 camera for the minimap — the old third-person view of the arena
-    _miniCam = [SCNNode node]; _miniCam.camera = [SCNCamera camera];
-    _miniCam.camera.fieldOfView = 52; _miniCam.camera.zFar = 300;
-    _miniCam.position = V3(0, 46, 34);
-    SCNNode *mc = [SCNNode node]; mc.position = V3(0, 6, 0);
-    [scene.rootNode addChildNode:mc];
-    _miniCam.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:mc]];
-    [scene.rootNode addChildNode:_miniCam];
-
     _scn = [[SCNView alloc] initWithFrame:self.bounds];
     _scn.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _scn.scene = scene;
@@ -212,24 +253,23 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     _scn.rendersContinuously = NO;
     [self addSubview:_scn];
 
-    // minimap — a second view of the SAME scene from the external camera, inset
-    // top-right with a border (the old third-person view, as a 3D map)
-    CGFloat mw = 230, mh = 158;
-    _mini = [[SCNView alloc] initWithFrame:
+    // minimap — a reliable top-down schematic (drawn from the live positions),
+    // inset top-right. (Two SceneKit views can't share a scene without stalling
+    // the main render loop, so the map is a custom view, not a second SCNView.)
+    CGFloat mw = 184, mh = 184;
+    _map = [[FlightMap alloc] initWithFrame:
         NSMakeRect(self.bounds.size.width-mw-12, self.bounds.size.height-mh-12, mw, mh)];
-    _mini.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
-    _mini.scene = _scn.scene; _mini.pointOfView = _miniCam;
-    _mini.backgroundColor = [NSColor colorWithSRGBRed:0.03 green:0.04 blue:0.06 alpha:1];
-    _mini.rendersContinuously = NO;
-    _mini.wantsLayer = YES; _mini.layer.borderWidth = 1.0; _mini.layer.cornerRadius = 6;
-    _mini.layer.borderColor = [NSColor colorWithSRGBRed:0.3 green:0.7 blue:0.5 alpha:0.85].CGColor;
-    [self addSubview:_mini];
-    NSTextField *ml = [NSTextField labelWithString:@"MAP  ·  ● fly   ◆ food"];
+    _map.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+    _map.pillars = _pillarPts;
+    _map.wantsLayer = YES; _map.layer.borderWidth = 1.0; _map.layer.cornerRadius = 6;
+    _map.layer.borderColor = [NSColor colorWithSRGBRed:0.3 green:0.7 blue:0.5 alpha:0.85].CGColor;
+    [self addSubview:_map];
+    NSTextField *ml = [NSTextField labelWithString:@"MAP  ·  ▲ fly   ◆ food"];
     ml.font = [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightSemibold];
     ml.textColor = [NSColor colorWithSRGBRed:0.4 green:1 blue:0.7 alpha:0.9];
     ml.frame = NSMakeRect(7, mh-15, mw-12, 12);
     ml.autoresizingMask = NSViewMaxXMargin;
-    [_mini addSubview:ml];
+    [_map addSubview:ml];
 
     // HUD (top, above everything)
     _hud = [NSTextField labelWithString:@""];
@@ -255,7 +295,6 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 - (void)setActive:(BOOL)active {
     _active = active;
     _scn.rendersContinuously = active;
-    _mini.rendersContinuously = active;
     if (active) { if (!_fly.running) [_fly start]; _lastT = 0; }
     else { _fly.smellLeftHz = _fly.smellRightHz = 0; _fly.lightLeftHz = _fly.lightRightHz = 0; }
 }
@@ -389,10 +428,13 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
                     : @"food out of view — casting to find it"];
         dispatch_async(dispatch_get_main_queue(), ^{ self->_hud.stringValue = txt; });
     }
-    if ((hk % 2) == 0) {                          // attitude indicator, ~30 Hz
+    if ((hk % 2) == 0) {                          // attitude indicator + map, ~30 Hz
         CGFloat yy = _yaw, pp = _pitch;
+        CGPoint flyXZ = CGPointMake(_pos.x, _pos.z), foodXZ = CGPointMake(_foodPos.x, _foodPos.z);
         dispatch_async(dispatch_get_main_queue(), ^{
-            self->_gyro.yaw = yy; self->_gyro.pitch = pp; [self->_gyro setNeedsDisplay:YES]; });
+            self->_gyro.yaw = yy; self->_gyro.pitch = pp; [self->_gyro setNeedsDisplay:YES];
+            self->_map.flyXZ = flyXZ; self->_map.foodXZ = foodXZ; self->_map.flyYaw = yy;
+            [self->_map setNeedsDisplay:YES]; });
     }
 }
 @end
