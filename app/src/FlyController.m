@@ -203,7 +203,9 @@ static int FSSuperclassForName(NSString *n) {
 // the biological clock --------------------------------------------------------
 - (void)_loop {
     const float  dt = 0.001f;       // 1 ms biological timestep
-    const int    K  = 8;            // steps per chunk (amortizes dispatch — §6.3)
+    const int    K  = 8;            // steps per chunk (amortizes dispatch — §6.3). The
+                                    // 139k brain is compute-bound at ~1x real-time live;
+                                    // bigger K doesn't help (publish isn't the bottleneck).
 
     uint64_t t0 = mach_absolute_time();
     uint64_t stepAcc = 0;

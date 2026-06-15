@@ -32,6 +32,7 @@ static SCNVector3 V3(CGFloat x, CGFloat y, CGFloat z){ return SCNVector3Make(x,y
 static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     CGFloat dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z; return sqrt(dx*dx+dy*dy+dz*dz);
 }
+static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI; return a; }
 
 // a gyroscope / attitude indicator: artificial-horizon ball (pitch) inside a
 // rotating compass ring (yaw), with a fixed fly symbol — shows the fly's attitude.
@@ -151,7 +152,8 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     BOOL _active;
 
     SCNVector3 _pos, _foodPos;
-    double _yaw, _pitch, _roll, _lastT, _castPhase;
+    double _yaw, _pitch, _lastT, _castPhase, _turnLP;
+    double _camYaw, _camPitch, _camRoll;     // smoothed camera attitude (anti-jitter)
     int    _caught, _calib;
     double _baseline;
 }
@@ -339,7 +341,8 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 
 - (void)_resetFlight {
     _pos = V3(-WORLD*0.7, 9, -WORLD*0.7);
-    _yaw = 0.6; _pitch = 0; _lastT = 0; _calib = 0; _baseline = 0;
+    _yaw = 0.6; _pitch = 0; _lastT = 0; _calib = 0; _baseline = 0; _turnLP = 0;
+    _camYaw = _yaw; _camPitch = 0; _camRoll = 0;
     [self _placeFood]; _flyNode.position = _pos;
 }
 - (void)_placeFood {
@@ -353,7 +356,6 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 - (void)renderer:(id<SCNSceneRenderer>)r updateAtTime:(NSTimeInterval)t {
     double dt = (_lastT > 0) ? (t - _lastT) : (1.0/60.0);
     _lastT = t; if (dt <= 0 || dt > 0.1) dt = 1.0/60.0;
-    double yaw0 = _yaw;                       // to derive bank (roll) from turn rate
 
     double cy = cos(_yaw), sy = sin(_yaw), cp = cos(_pitch), sp = sin(_pitch);
     SCNVector3 fwd = V3(sy*cp, sp, cy*cp), right = V3(cy, 0, -sy);
@@ -391,7 +393,8 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         if (fabs(bearing) < 0.15) _baseline += (asym - _baseline) * 0.02;
         double turn = asym - _baseline;
         if (fabs(turn) < YAW_DEAD) turn = 0;
-        double yawRate = turn * YAW_GAIN;
+        _turnLP += (turn - _turnLP) * 0.10;   // low-pass the noisy steering command
+        double yawRate = _turnLP * YAW_GAIN;
         if (yawRate >  YAW_MAX) yawRate =  YAW_MAX;
         if (yawRate < -YAW_MAX) yawRate = -YAW_MAX;
         _yaw -= yawRate * dt;                 // DNa polarity: food-right → bank right
@@ -409,12 +412,6 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         _yaw += d * 1.5 * dt;
     }
 
-    // bank (roll) into the turn — a coordinated turn, and it tilts the horizon
-    double dyaw = _yaw - yaw0;
-    while (dyaw > M_PI) dyaw -= 2*M_PI; while (dyaw < -M_PI) dyaw += 2*M_PI;
-    double rollT = (dyaw/dt) * 0.34; if (rollT > 0.7) rollT = 0.7; if (rollT < -0.7) rollT = -0.7;
-    _roll += (rollT - _roll) * 0.08;
-
     double speed = CRUISE * (1.0 - 0.72*odorHead);
     cy = cos(_yaw); sy = sin(_yaw); cp = cos(_pitch); sp = sin(_pitch);
     fwd = V3(sy*cp, sp, cy*cp);
@@ -423,11 +420,22 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     if (_pos.y > ALT_MAX) { _pos.y = ALT_MAX; if (_pitch > 0) _pitch = 0; }
     _flyNode.position = _pos;
 
-    // FIRST-PERSON camera on the gimbal rig: rig at the eye (led ahead so the fly
-    // stays out of frame), looking along heading; camera rolled to bank the view
-    _camRig.position   = V3(_pos.x + fwd.x*1.8, _pos.y + 0.12, _pos.z + fwd.z*1.8);
-    _lookNode.position = V3(_pos.x + fwd.x*20,  _pos.y + fwd.y*20, _pos.z + fwd.z*20);
-    _camNode.eulerAngles = V3(0, 0, _roll);
+    // SMOOTHED camera attitude — the hysteresis that kills the seasickness. The
+    // camera eases toward the (noisy) flight heading; roll comes from the SMOOTHED
+    // yaw rate (deriving it from the raw yaw was the worst of the jitter).
+    double prevCamYaw = _camYaw;
+    _camYaw   += angWrap(_yaw - _camYaw) * 0.06;
+    _camPitch += (_pitch - _camPitch)    * 0.05;
+    double camYawRate = angWrap(_camYaw - prevCamYaw) / dt;
+    double rollT = camYawRate * 0.32; if (rollT > 0.55) rollT = 0.55; if (rollT < -0.55) rollT = -0.55;
+    _camRoll  += (rollT - _camRoll) * 0.05;
+
+    // first-person camera from the SMOOTHED attitude
+    double ccy=cos(_camYaw), csy=sin(_camYaw), ccp=cos(_camPitch), csp=sin(_camPitch);
+    SCNVector3 cfwd = V3(csy*ccp, csp, ccy*ccp); (void)sp;
+    _camRig.position   = V3(_pos.x + cfwd.x*1.8, _pos.y + 0.12, _pos.z + cfwd.z*1.8);
+    _lookNode.position = V3(_pos.x + cfwd.x*20,  _pos.y + cfwd.y*20, _pos.z + cfwd.z*20);
+    _camNode.eulerAngles = V3(0, 0, _camRoll);
 
     if (vdist(_pos, _foodPos) < CATCH) { _caught++; [self _placeFood]; _calib = 0; }
 
@@ -444,7 +452,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         dispatch_async(dispatch_get_main_queue(), ^{ self->_hud.stringValue = txt; });
     }
     if ((hk % 2) == 0) {                          // attitude indicator + map, ~30 Hz
-        CGFloat yy = _yaw, pp = _pitch, rr = _roll;
+        CGFloat yy = _camYaw, pp = _camPitch, rr = _camRoll;   // match the (smoothed) view
         CGPoint flyXZ = CGPointMake(_pos.x, _pos.z), foodXZ = CGPointMake(_foodPos.x, _foodPos.z);
         dispatch_async(dispatch_get_main_queue(), ^{
             self->_gyro.yaw = yy; self->_gyro.pitch = pp; self->_gyro.roll = rr;
