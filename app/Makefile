@@ -16,11 +16,13 @@ SYNTH_BIN  = ../data/flysim.bin
 CC      = clang
 CFLAGS  = -Wall -Wextra -O2 -fobjc-arc -I$(CORE_DIR) -Isrc -mmacosx-version-min=11.0
 CSTD    = -std=c99
-LDFLAGS = -framework Cocoa -framework QuartzCore -framework Metal -framework Foundation
+LDFLAGS = -framework Cocoa -framework QuartzCore -framework Metal -framework Foundation \
+          -framework SceneKit
 
 SRC_C = $(CORE_DIR)/flysim.c
 SRC_M = src/main.m src/AppDelegate.m src/MainWindowController.m \
-        src/FlyController.m src/FSWidgets.m src/FSControlServer.m
+        src/FlyController.m src/FSWidgets.m src/FSControlServer.m \
+        src/FlightWindowController.m
 
 OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(notdir $(SRC_C))) \
        $(OBJ_DIR)/flysim_metal.o \

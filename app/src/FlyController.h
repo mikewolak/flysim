@@ -29,6 +29,8 @@ typedef struct {
     float    l2Rate;         // feeding interneuron stage
     float    motorRate;      // all motor neurons
     float    dnRate;         // descending neurons (brain → body command lines)
+    float    dnLeftRate;     // left  descending (3D flight: steering)
+    float    dnRightRate;    // right descending
     uint32_t lastSpikes;     // spikes in the most recent step
     double   simTime;        // accumulated biological seconds
     double   stepsPerSec;    // measured sim throughput
@@ -52,9 +54,11 @@ typedef struct {
 @property (atomic) float heatHz;     // thermosensory
 @property (atomic) float humidityHz;    // hygrosensory
 @property (atomic) float lightHz;    // visual photoreceptors
-// bilateral olfaction for the 3D flight loop (override symmetric smellHz when >0)
+// bilateral olfaction + vision for the 3D flight loop (override symmetric when >0)
 @property (atomic) float smellLeftHz;
 @property (atomic) float smellRightHz;
+@property (atomic) float lightLeftHz;    // left eye photoreceptors
+@property (atomic) float lightRightHz;   // right eye photoreceptors
 
 // Sim speed cap: 1.0 == real time (1000 steps/s @ 1ms tick). <=0 == unthrottled.
 @property (atomic) double speed;

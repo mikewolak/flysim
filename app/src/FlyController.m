@@ -16,7 +16,7 @@
     FlySet _sugar, _water, _bitter, _mn9, _l2;
     FlySet _smell, _touch, _heat, _humid, _light;   // the rest of the senses
     FlySet _motor, _dn;                              // motor + descending outputs
-    FlySet _smellL, _smellR, _dnL, _dnR;             // bilateral (3D flight loop)
+    FlySet _smellL, _smellR, _lightL, _lightR, _dnL, _dnR;   // bilateral (3D flight)
 
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
@@ -73,6 +73,8 @@
     // left/right descending neurons (the brain's command lines) out.
     _smellL = flysim_set_by_modality(_sim, MOD_OLFACTORY, SIDE_LEFT);
     _smellR = flysim_set_by_modality(_sim, MOD_OLFACTORY, SIDE_RIGHT);
+    _lightL = flysim_set_by_modality(_sim, MOD_VISUAL, SIDE_LEFT);   // left eye
+    _lightR = flysim_set_by_modality(_sim, MOD_VISUAL, SIDE_RIGHT);  // right eye
     _dnL    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_LEFT);
     _dnR    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_RIGHT);
 }
@@ -92,7 +94,13 @@
     flysim_clamp(_sim, _touch,  self.touchHz);
     flysim_clamp(_sim, _heat,   self.heatHz);
     flysim_clamp(_sim, _humid,  self.humidityHz);
-    flysim_clamp(_sim, _light,  self.lightHz);
+    // vision: bilateral (left/right eye) when the flight loop drives it, else symmetric
+    if (self.lightLeftHz > 0 || self.lightRightHz > 0) {
+        flysim_clamp(_sim, _lightL, self.lightLeftHz);
+        flysim_clamp(_sim, _lightR, self.lightRightHz);
+    } else {
+        flysim_clamp(_sim, _light, self.lightHz);
+    }
 }
 
 // left/right descending-neuron mean firing (Hz) — the brain's steering output
@@ -254,6 +262,8 @@ static int FSSuperclassForName(NSString *n) {
     s.l2Rate     = flysim_set_rate(_sim, _l2);
     s.motorRate  = flysim_set_rate(_sim, _motor);
     s.dnRate     = flysim_set_rate(_sim, _dn);
+    s.dnLeftRate = flysim_set_rate(_sim, _dnL);
+    s.dnRightRate= flysim_set_rate(_sim, _dnR);
     s.lastSpikes = flysim_last_spike_count(_sim);
     s.simTime    = flysim_sim_time(_sim);
 

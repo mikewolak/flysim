@@ -6,6 +6,7 @@
 #import "FlyController.h"
 #import "FSWidgets.h"
 #import "FSControlServer.h"
+#import "FlightWindowController.h"
 
 // proboscis mapping (§8.1): MN9 firing rate (Hz) → extension fraction. Tuned so
 // a real sugar response (MN9 ~40–55 Hz on the FlyWire brain) drives a full,
@@ -60,6 +61,8 @@
     FSControlServer *_mcp;
     NSButton *_mcpEnable;
     NSTextField *_portField, *_mcpStatus;
+
+    FlightWindowController *_flightWC;   // 3D brain-steered flight window
 }
 
 - (instancetype)init {
@@ -180,6 +183,7 @@
         _foodBtn.isOn = YES; [self _foodToggled:nil];   // place food → smell → walk → feed
     }
     if (getenv("FLYSIM_SHOW_SETTINGS")) [self _toggleSettings:nil];
+    if (_fly && getenv("FLYSIM_FLIGHT")) [self _open3DFlight:nil];
 }
 
 - (NSView *)_transportBarWithWidth:(CGFloat)W {
@@ -223,6 +227,11 @@
     _speedSel.target = self; _speedSel.action = @selector(_speedChanged:);
     _speedSel.toolTip = @"Sim speed cap (1× = real time @ 1ms tick; MAX = unthrottled)";
     [bar addSubview:_speedSel];
+
+    NSButton *flight3d = [self _chromeButton:@"✈ 3D FLIGHT" action:@selector(_open3DFlight:)];
+    flight3d.frame = NSMakeRect(756, 18, 124, 30);
+    flight3d.toolTip = @"3D world: the fly flies to food, steered by its descending neurons";
+    [bar addSubview:flight3d];
 
     _settingsBtn = [self _chromeButton:@"⚙ SETTINGS" action:@selector(_toggleSettings:)];
     _settingsBtn.frame = NSMakeRect(W-126, 18, 110, 30);
@@ -397,6 +406,12 @@
     [_fly reset];
     [_activity clearHistory];
     _proboscisAngle = 0;
+}
+- (void)_open3DFlight:(id)s {
+    if (!_fly) return;
+    if (!_flightWC) _flightWC = [[FlightWindowController alloc] initWithFly:_fly];
+    [_flightWC showWindow:nil];
+    [_flightWC.window makeKeyAndOrderFront:nil];
 }
 - (void)_backendChanged:(NSSegmentedControl *)seg {
     if (!_fly) return;
@@ -758,6 +773,9 @@
     [_mcp registerTool:@"smell_lr" doc:@"Clamp the LEFT and RIGHT olfactory ORNs separately (Hz) — bilateral input for the 3D flight loop. params: {left:float, right:float}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_fly.smellLeftHz = [p[@"left"] floatValue]; s->_fly.smellRightHz = [p[@"right"] floatValue];
         return @{@"left":@(s->_fly.smellLeftHz), @"right":@(s->_fly.smellRightHz)}; }];
+    [_mcp registerTool:@"light_lr" doc:@"Clamp the LEFT and RIGHT eye photoreceptors separately (Hz) — bilateral visual target fixation. params: {left:float, right:float}" handler:^id(NSDictionary *p, NSString **e){
+        (void)e; STRONG; s->_fly.lightLeftHz = [p[@"left"] floatValue]; s->_fly.lightRightHz = [p[@"right"] floatValue];
+        return @{@"left":@(s->_fly.lightLeftHz), @"right":@(s->_fly.lightRightHz)}; }];
     [_mcp registerTool:@"sample_rate" doc:@"Set UI sampler rate (does not affect 1ms sim tick). params: {hz:60|90|120}" handler:^id(NSDictionary *p, NSString **e){
         (void)e; STRONG; s->_sampleHz = [p[@"hz"] doubleValue] ?: 60; [s _installTimer];
         [s->_rateSel selectItemWithTitle:[NSString stringWithFormat:@"%.0f Hz", s->_sampleHz]];
