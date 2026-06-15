@@ -83,6 +83,11 @@ struct FlySim {
     uint32_t mn9_set;          // cached MN9 set (or FLYSET_NONE)
     uint32_t last_spikes;
     double   sim_time;
+
+    // processing-stage ordering of neurons (sensory → central → descending →
+    // motor), so the activity strip reads as information flow, not file order.
+    uint32_t* order;           // [N] neuron index at each strip position
+    uint32_t* rank;            // [N] strip position of each neuron (inverse)
 };
 
 // ---------------------------------------------------------------------------
@@ -91,6 +96,53 @@ struct FlySim {
 
 static const void* at(const struct FlySim* s, uint64_t off) {
     return (const uint8_t*)s->map + off;
+}
+
+// Processing-stage rank of a neuron (low = sensory input, high = motor output).
+// Each taste/sense gets its own band, then central brain, descending, motor —
+// so the activity strip reads bottom-to-top as the path from senses to action.
+static uint8_t stage_key(const struct FlySim* s, uint32_t j) {
+    switch (s->modality[j]) {
+        case MOD_GUSTATORY_SUGAR:  return 0;
+        case MOD_GUSTATORY_WATER:  return 1;
+        case MOD_GUSTATORY_BITTER: return 2;
+        case MOD_OLFACTORY:        return 3;
+        case MOD_MECHANO_ANTENNA:  return 4;
+        case MOD_THERMO:           return 5;
+        case MOD_HYGRO:            return 6;
+        case MOD_VISUAL:           return 7;   // retinal photoreceptors
+        default: break;
+    }
+    switch (s->super[j]) {
+        case SC_SENSORY:            return 8;   // other afferents
+        case SC_OPTIC:              return 9;   // optic-lobe visual interneurons
+        case SC_VISUAL_PROJECTION:  return 10;
+        case SC_VISUAL_CENTRIFUGAL: return 10;
+        case SC_CENTRAL:            return 11;  // central-brain interneurons (the bulk)
+        case SC_ASCENDING:          return 12;
+        case SC_ENDOCRINE:          return 12;
+        case SC_DESCENDING:         return 13;  // brain → VNC command lines
+        case SC_MOTOR:              return 14;  // motor output (top)
+        default:                    return 11;
+    }
+}
+
+// Counting-sort the neurons by stage_key into s->order (+ inverse s->rank).
+static void build_order(struct FlySim* s) {
+    uint32_t N = s->N;
+    s->order = malloc((size_t)N * sizeof(uint32_t));
+    s->rank  = malloc((size_t)N * sizeof(uint32_t));
+    if (!s->order || !s->rank) return;
+    uint32_t cnt[16] = {0};
+    uint8_t* key = malloc((size_t)N);
+    for (uint32_t j = 0; j < N; ++j) { key[j] = stage_key(s, j); cnt[key[j]]++; }
+    uint32_t pos[16]; uint32_t acc = 0;
+    for (int k = 0; k < 16; ++k) { pos[k] = acc; acc += cnt[k]; }
+    for (uint32_t j = 0; j < N; ++j) {           // stable: ascending j within a key
+        uint32_t p = pos[key[j]]++;
+        s->order[p] = j; s->rank[j] = p;
+    }
+    free(key);
 }
 
 FlySim* flysim_open(const char* bin_path, FlyBackend backend) {
@@ -171,6 +223,8 @@ FlySim* flysim_open(const char* bin_path, FlyBackend backend) {
         free(cur);
     }
 
+    build_order(s);
+
     s->mn9_set = FLYSET_NONE;
     s->backend = FLYSIM_CPU;
 
@@ -233,6 +287,7 @@ void flysim_close(FlySim* s) {
     if (!s) return;
     for (uint32_t i = 0; i < s->set_count; ++i) free(s->sets[i].rows);
     free(s->sets);
+    free(s->order); free(s->rank);
     free(s->V); free(s->Isyn); free(s->refrac);
     free(s->spike); free(s->spike_prev); free(s->rate);
     free(s->clamp_hz); free(s->clamp_phase); free(s->wfix);
@@ -526,13 +581,31 @@ const float* flysim_rate_buffer(const FlySim* s, uint32_t* count_out) {
 // Where a set's neurons sit across the heat-strip's `nbins` row-bins.
 // out[b] = fraction of the set in bin b, peak-normalised to 1. Returns the peak
 // bin (or -1 if empty) — lets the UI mark which heatmap rows a sense occupies.
+// Mean firing rate per strip bin, neurons taken in processing-stage order
+// (sensory at bin 0 → motor at the top), so the strip reads as information flow.
+void flysim_ordered_bins(const FlySim* s, int nbins, float* out) {
+    for (int b = 0; b < nbins; ++b) out[b] = 0.0f;
+    if (nbins <= 0 || !s->order) return;
+    uint32_t N = s->N;
+    for (int b = 0; b < nbins; ++b) {
+        uint32_t lo = (uint32_t)((uint64_t)b * N / nbins);
+        uint32_t hi = (uint32_t)((uint64_t)(b + 1) * N / nbins);
+        if (hi <= lo) continue;
+        double sum = 0;
+        for (uint32_t j = lo; j < hi; ++j) sum += s->rate[s->order[j]];
+        out[b] = (float)(sum / (hi - lo));
+    }
+}
+
 int flysim_set_bins(const FlySim* s, FlySet set, int nbins, float* out) {
     for (int b = 0; b < nbins; ++b) out[b] = 0.0f;
     if (set >= s->set_count || s->sets[set].count == 0 || nbins <= 0) return -1;
     const uint32_t* rows = s->sets[set].rows;
     uint32_t cnt = s->sets[set].count;
     for (uint32_t i = 0; i < cnt; ++i) {
-        int b = (int)((uint64_t)rows[i] * (uint64_t)nbins / s->N);
+        // bin by the neuron's strip position, so marks align with the ordered strip
+        uint32_t r = s->rank ? s->rank[rows[i]] : rows[i];
+        int b = (int)((uint64_t)r * (uint64_t)nbins / s->N);
         if (b >= 0 && b < nbins) out[b] += 1.0f;
     }
     float mx = 0.0f; int peak = 0;

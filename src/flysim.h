@@ -73,6 +73,8 @@ float        flysim_rate(const FlySim*, uint32_t row);   // smoothed Hz, one neu
 float        flysim_set_rate(const FlySim*, FlySet);     // mean Hz over a set
 // Distribution of a set across `nbins` row-bins (peak-normalised); returns peak bin.
 int          flysim_set_bins(const FlySim*, FlySet, int nbins, float* out);
+// Mean rate per bin with neurons in processing-stage order (sensory→motor).
+void         flysim_ordered_bins(const FlySim*, int nbins, float* out);
 const float* flysim_rate_buffer(const FlySim*, uint32_t* count_out);
 const uint8_t* flysim_spike_buffer(const FlySim*, uint32_t* count_out);
 

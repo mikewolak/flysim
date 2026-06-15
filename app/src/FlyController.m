@@ -301,15 +301,11 @@ static int FSSuperclassForName(NSString *n) {
     s.lastSpikes = flysim_last_spike_count(_sim);
     s.simTime    = flysim_sim_time(_sim);
 
-    // spatial bins: mean rate over contiguous row ranges -> the heat strip
-    for (int b = 0; b < FS_BINS; ++b) {
-        uint32_t lo = (uint32_t)((uint64_t)b * n / FS_BINS);
-        uint32_t hi = (uint32_t)((uint64_t)(b + 1) * n / FS_BINS);
-        if (hi <= lo) { s.bins[b] = 0; continue; }
-        double sum = 0;
-        for (uint32_t j = lo; j < hi; ++j) sum += rate[j];
-        s.bins[b] = (float)(sum / (hi - lo));
-    }
+    // activity strip bins: mean rate per bin, neurons in processing-stage order
+    // (senses at the bottom → central → descending → motor at the top), so the
+    // strip reads as information flow, not arbitrary connectome file order.
+    (void)rate;
+    flysim_ordered_bins(_sim, FS_BINS, s.bins);
 
     os_unfair_lock_lock(&_lock);
     s.stepsPerSec    = _snap.stepsPerSec;     // preserve perf fields
