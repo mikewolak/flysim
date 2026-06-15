@@ -88,6 +88,7 @@ struct FlySim {
     // motor), so the activity strip reads as information flow, not file order.
     uint32_t* order;           // [N] neuron index at each strip position
     uint32_t* rank;            // [N] strip position of each neuron (inverse)
+    uint32_t  stage_count[16]; // neurons per processing-stage key (for band labels)
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,7 @@ static void build_order(struct FlySim* s) {
     uint32_t cnt[16] = {0};
     uint8_t* key = malloc((size_t)N);
     for (uint32_t j = 0; j < N; ++j) { key[j] = stage_key(s, j); cnt[key[j]]++; }
+    for (int k = 0; k < 16; ++k) s->stage_count[k] = cnt[k];
     uint32_t pos[16]; uint32_t acc = 0;
     for (int k = 0; k < 16; ++k) { pos[k] = acc; acc += cnt[k]; }
     for (uint32_t j = 0; j < N; ++j) {           // stable: ascending j within a key
@@ -581,6 +583,11 @@ const float* flysim_rate_buffer(const FlySim* s, uint32_t* count_out) {
 // Where a set's neurons sit across the heat-strip's `nbins` row-bins.
 // out[b] = fraction of the set in bin b, peak-normalised to 1. Returns the peak
 // bin (or -1 if empty) — lets the UI mark which heatmap rows a sense occupies.
+// Neuron count per processing-stage key (16 entries, key order == strip order).
+void flysim_stage_counts(const FlySim* s, uint32_t* out16) {
+    for (int k = 0; k < 16; ++k) out16[k] = s->stage_count[k];
+}
+
 // Mean firing rate per strip bin, neurons taken in processing-stage order
 // (sensory at bin 0 → motor at the top), so the strip reads as information flow.
 void flysim_ordered_bins(const FlySim* s, int nbins, float* out) {

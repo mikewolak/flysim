@@ -51,9 +51,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface FSActivityView : NSView
 - (void)pushBins:(const float *)bins count:(int)n ceiling:(float)ceilHz;
 - (void)clearHistory;
-// Side markers showing which heatmap rows a sense occupies. Each entry:
-// @{ @"y":0..1 (bin position), @"color":NSColor, @"label":NSString, @"glow":0..1 }.
-- (void)setSenseMarks:(NSArray<NSDictionary *> *)marks;
+// Labeled processing-stage bands for hover tooltips. Each entry:
+// @{ @"lo":0..1, @"hi":0..1, @"label":NSString } (0 == bottom of the strip).
+- (void)setStages:(NSArray<NSDictionary *> *)stages;
 @end
 
 // Animated, anatomically-styled lateral view of the fly head performing the

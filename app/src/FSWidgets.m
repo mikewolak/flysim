@@ -196,9 +196,27 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
     float  *_hist;     // _cols * _rows, column-major ring
     int     _head;     // next column to write
     uint8_t *_rgba;    // _cols * _rows * 4 scratch
-    NSArray<NSDictionary *> *_marks;   // per-sense row markers
+    NSArray<NSDictionary *> *_stages;  // labeled stage bands (for hover tooltips)
 }
-- (void)setSenseMarks:(NSArray<NSDictionary *> *)marks { _marks = marks; }
+- (void)setStages:(NSArray<NSDictionary *> *)stages {
+    _stages = stages; [self _rebuildTip];
+}
+- (void)_rebuildTip {
+    [self removeAllToolTips];
+    if (_stages.count) [self addToolTipRect:self.bounds owner:self userData:NULL];
+}
+- (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self _rebuildTip]; }
+// one tooltip rect over the whole strip; resolve the band from the hover point.
+- (NSString *)view:(NSView *)v stringForToolTip:(NSToolTipTag)tag
+             point:(NSPoint)pt userData:(void *)data {
+    CGFloat h = self.bounds.size.height; if (h <= 0) return @"";
+    CGFloat f = 1.0 - pt.y / h;                 // flipped: y from top → fraction from bottom
+    for (NSDictionary *st in _stages) {
+        if (f >= [st[@"lo"] doubleValue] && f < [st[@"hi"] doubleValue])
+            return st[@"label"];
+    }
+    return @"neural activity";
+}
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)f {
     if ((self = [super initWithFrame:f])) {
@@ -256,37 +274,6 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
     CGContextRestoreGState(ctx);
 
     CGImageRelease(img); CGContextRelease(bmp); CGColorSpaceRelease(cs);
-
-    // ---- per-sense row markers: a colored wedge + tag on the left gutter at the
-    //      heat-bin where that sense's neurons sit; it glows when the sense fires,
-    //      so you can see exactly which rows of the brain light up. ------------
-    for (NSDictionary *m in _marks) {
-        CGFloat f = [m[@"y"] doubleValue];                 // 0..1, bin 0 at bottom
-        CGFloat glow = [m[@"glow"] doubleValue];
-        NSColor *c = m[@"color"];
-        CGFloat y = b.size.height * (1.0 - f);             // flipped: y down from top
-        BOOL active = glow > 0.15;
-        // wedge tab on the left gutter — bright when the sense is firing
-        NSBezierPath *wedge = [NSBezierPath bezierPath];
-        [wedge moveToPoint:CGPointMake(0, y-5)];
-        [wedge lineToPoint:CGPointMake(10 + 8*glow, y)];
-        [wedge lineToPoint:CGPointMake(0, y+5)];
-        [wedge closePath];
-        [[c colorWithAlphaComponent:0.35 + 0.65*glow] setFill]; [wedge fill];
-        if (active) {                                      // full-width band + label chip
-            [[c colorWithAlphaComponent:0.22 + 0.45*glow] setStroke];
-            NSBezierPath *ln = [NSBezierPath bezierPath];
-            [ln moveToPoint:CGPointMake(0,y)]; [ln lineToPoint:CGPointMake(b.size.width,y)];
-            ln.lineWidth = 1.5; [ln stroke];
-            NSString *lbl = m[@"label"];
-            NSDictionary *attr = @{ NSFontAttributeName:[FSStyle mono:10 weight:NSFontWeightHeavy],
-                                    NSForegroundColorAttributeName:c,
-                                    NSStrokeColorAttributeName:[NSColor colorWithWhite:0 alpha:0.9],
-                                    NSStrokeWidthAttributeName:@(-4.0) };   // dark outline for contrast
-            NSSize ls = [lbl sizeWithAttributes:attr];
-            [lbl drawAtPoint:CGPointMake(22, y - ls.height/2) withAttributes:attr];
-        }
-    }
 
     // subtle scanline frame
     [[FSStyle panelStroke] setStroke];

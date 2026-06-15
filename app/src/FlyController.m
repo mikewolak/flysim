@@ -107,6 +107,35 @@
 
 - (NSDictionary<NSString *, NSNumber *> *)sensePeakBins { return _sensePeak; }
 
+// The labeled processing-stage bands of the activity strip (bottom→top), each
+// with its fractional y-range [lo,hi) and a tooltip caption with size + share —
+// so hovering a band tells you which part of the brain you're looking at.
+- (NSArray<NSDictionary *> *)activityStages {
+    static NSArray *names;
+    if (!names) names = @[ @"sugar receptors · taste", @"water receptors · taste",
+        @"bitter receptors · taste", @"olfactory receptors · smell",
+        @"mechanosensory · touch", @"thermosensory · heat", @"hygrosensory · humidity",
+        @"photoreceptors · vision input", @"other sensory afferents",
+        @"optic lobe · visual processing", @"visual projection neurons",
+        @"central brain interneurons", @"ascending + endocrine neurons",
+        @"descending neurons · brain→body", @"motor neurons · output" ];
+    uint32_t cnt[16]; flysim_stage_counts(_sim, cnt);
+    double N = _neuronCount > 0 ? _neuronCount : 1;
+    NSMutableArray *out = [NSMutableArray array];
+    uint64_t acc = 0;
+    for (int k = 0; k < (int)names.count; ++k) {
+        uint32_t c = cnt[k];
+        double lo = acc / N; acc += c; double hi = acc / N;
+        if (c == 0) continue;
+        NSString *cap = [NSString stringWithFormat:@"%@  —  %@ neurons (%.1f%%)",
+            names[k],
+            [NSNumberFormatter localizedStringFromNumber:@(c) numberStyle:NSNumberFormatterDecimalStyle],
+            100.0 * c / N];
+        [out addObject:@{ @"lo":@(lo), @"hi":@(hi), @"label":cap }];
+    }
+    return out;
+}
+
 // apply every UI sensory clamp to the model (called each sim chunk + on step)
 - (void)_applyClamps {
     flysim_clamp(_sim, _sugar,  self.sugarHz);

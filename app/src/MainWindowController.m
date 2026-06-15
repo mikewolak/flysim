@@ -147,6 +147,7 @@
                    _brainPanel.bounds.size.height-40)];
     _activity.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [_brainPanel addSubview:_activity];
+    if (_fly) [_activity setStages:[_fly activityStages]];   // hover labels per band
 
     // ---- output panel (bottom, full width) -------------------------------
     _outPanel = [[FSPanel alloc] initWithFrame:
@@ -544,29 +545,6 @@
                             heat:MIN(1.0, _fly.heatHz     / 150.0)
                            light:MIN(1.0, _fly.lightHz    / 150.0)
                            humid:MIN(1.0, _fly.humidityHz / 150.0)];
-
-    // heatmap row markers: where each sense's neurons sit on the strip + how hard
-    // it's firing right now, so an active sense visibly lights its own rows.
-    static NSArray *order; static NSDictionary *mcol, *mlbl;
-    if (!order) {
-        order = @[@"sugar",@"water",@"bitter",@"smell",@"touch",@"heat",@"humidity",@"light"];
-        mcol = @{ @"sugar":[FSStyle sugar], @"water":[FSStyle water], @"bitter":[FSStyle bitter],
-            @"smell":[NSColor colorWithSRGBRed:0.55 green:0.90 blue:0.45 alpha:1],
-            @"touch":[NSColor colorWithSRGBRed:0.95 green:0.72 blue:0.32 alpha:1],
-            @"heat": [NSColor colorWithSRGBRed:1.00 green:0.50 blue:0.20 alpha:1],
-            @"humidity":[NSColor colorWithSRGBRed:0.40 green:0.80 blue:0.92 alpha:1],
-            @"light":[NSColor colorWithSRGBRed:0.80 green:0.85 blue:1.00 alpha:1] };
-        mlbl = @{ @"sugar":@"sug",@"water":@"h2o",@"bitter":@"bit",@"smell":@"olf",
-            @"touch":@"mec",@"heat":@"thm",@"humidity":@"hyg",@"light":@"vis" };
-    }
-    NSDictionary *peaks = _fly.sensePeakBins;
-    NSMutableArray *marks = [NSMutableArray array];
-    for (NSString *nm in order) {
-        NSNumber *y = peaks[nm]; if (!y) continue;
-        [marks addObject:@{ @"y":y, @"color":mcol[nm], @"label":mlbl[nm],
-                            @"glow":@(MIN(1.0, [srate[nm] floatValue] / 120.0)) }];
-    }
-    [_activity setSenseMarks:marks];
 
     _statusRight.stringValue = [NSString stringWithFormat:
         @"%@   sim %.2fs   %.0f steps/s   %.2f× realtime   %u spk/step",

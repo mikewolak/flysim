@@ -250,7 +250,11 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
     _lookNode = [SCNNode node];
     [scene.rootNode addChildNode:_lookNode];
     [scene.rootNode addChildNode:_camRig];
-    _camRig.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode]];
+    SCNLookAtConstraint *lookAt = [SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode];
+    lookAt.gimbalLockEnabled = YES;   // pin the up-vector to world-up — without this
+    // the constraint rolls freely about the look axis and the horizon can flip the
+    // fly upside down. Intentional banking is the explicit _camRoll on _camNode.
+    _camRig.constraints = @[lookAt];
     _camNode = [SCNNode node]; _camNode.camera = [SCNCamera camera];
     _camNode.camera.fieldOfView = 95; _camNode.camera.zFar = 300; _camNode.camera.zNear = 0.3;
     [_camRig addChildNode:_camNode];
