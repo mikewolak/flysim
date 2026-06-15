@@ -33,14 +33,57 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     CGFloat dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z; return sqrt(dx*dx+dy*dy+dz*dz);
 }
 
+// translucent first-person framing — the fly's own antennae + forelegs at the
+// edges of view, like looking out from inside its head.
+@interface FlightCockpit : NSView @end
+@implementation FlightCockpit
+- (BOOL)isFlipped { return NO; }
+- (NSView *)hitTest:(NSPoint)p { (void)p; return nil; }   // pass mouse through
+- (void)drawRect:(NSRect)d {
+    (void)d;
+    CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
+    NSColor *dk = [NSColor colorWithWhite:0.015 alpha:0.55];
+    NSGradient *vg = [[NSGradient alloc] initWithColorsAndLocations:
+        [NSColor clearColor], 0.0, [NSColor colorWithWhite:0 alpha:0.0], 0.66,
+        [NSColor colorWithWhite:0 alpha:0.34], 1.0, nil];
+    [vg drawInRect:self.bounds relativeCenterPosition:NSZeroPoint];   // edge vignette
+    for (int s = -1; s <= 1; s += 2) {                                // two antennae
+        CGFloat bx = W*0.5 + s*W*0.03, tx = W*0.5 + s*W*0.17, ty = H*0.42;
+        NSBezierPath *a = [NSBezierPath bezierPath];
+        [a moveToPoint:NSMakePoint(bx, -4)];
+        [a curveToPoint:NSMakePoint(tx, ty)
+           controlPoint1:NSMakePoint(bx + s*W*0.02, H*0.15)
+           controlPoint2:NSMakePoint(tx - s*W*0.02, ty - H*0.12)];
+        a.lineWidth = 9; a.lineCapStyle = NSLineCapStyleRound; [dk setStroke]; [a stroke];
+        [dk setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(tx-8, ty-8, 16, 16)] fill];
+        for (int k = 1; k <= 4; k++) {                               // arista hairs
+            CGFloat t = k/5.0; NSPoint p0 = NSMakePoint(tx + s*t*W*0.05, ty + t*H*0.10);
+            NSBezierPath *h = [NSBezierPath bezierPath];
+            [h moveToPoint:p0]; [h lineToPoint:NSMakePoint(p0.x + s*15, p0.y + 9)];
+            h.lineWidth = 2; [h stroke];
+        }
+    }
+    for (int s = -1; s <= 1; s += 2) {                               // forelegs (corners)
+        CGFloat cx = (s < 0) ? 0 : W;
+        NSBezierPath *leg = [NSBezierPath bezierPath];
+        [leg moveToPoint:NSMakePoint(cx, 0)];
+        [leg lineToPoint:NSMakePoint(cx - s*W*0.12, H*0.17)];
+        [leg lineToPoint:NSMakePoint(cx - s*W*0.03, H*0.31)];
+        leg.lineWidth = 12; leg.lineCapStyle = NSLineCapStyleRound; [dk setStroke]; [leg stroke];
+    }
+}
+@end
+
 @interface FlightView () <SCNSceneRendererDelegate>
 @end
 
 @implementation FlightView {
     FlyController *_fly;
-    SCNView   *_scn;
-    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode;
+    SCNView   *_scn, *_mini;
+    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode, *_miniCam;
     NSTextField *_hud;
+    FlightCockpit *_cockpit;
     BOOL _active;
 
     SCNVector3 _pos, _foodPos;
@@ -109,10 +152,16 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         [SCNAction scaleTo:1.18 duration:0.9], [SCNAction scaleTo:1.0 duration:0.9]]]]];
     [scene.rootNode addChildNode:_foodNode];
 
-    // the fly body (mostly behind the camera in first person)
-    SCNSphere *bs = [SCNSphere sphereWithRadius:0.28];
+    // the fly body — behind the FP camera, but the bright marker the map shows
+    SCNSphere *bs = [SCNSphere sphereWithRadius:0.5];
     bs.firstMaterial.emission.contents = [NSColor colorWithSRGBRed:0.5 green:1 blue:0.7 alpha:1];
     _flyNode = [SCNNode nodeWithGeometry:bs];
+    SCNSphere *fhalo = [SCNSphere sphereWithRadius:0.9];   // glow so it pops on the map
+    fhalo.firstMaterial.emission.contents = [NSColor colorWithSRGBRed:0.4 green:1 blue:0.7 alpha:1];
+    fhalo.firstMaterial.transparency = 0.25;
+    fhalo.firstMaterial.writesToDepthBuffer = NO;
+    fhalo.firstMaterial.lightingModelName = SCNLightingModelConstant;
+    [_flyNode addChildNode:[SCNNode nodeWithGeometry:fhalo]];
     [scene.rootNode addChildNode:_flyNode];
 
     // lights
@@ -128,6 +177,15 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     [scene.rootNode addChildNode:_camNode];
     _camNode.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode]];
 
+    // external 3/4 camera for the minimap — the old third-person view of the arena
+    _miniCam = [SCNNode node]; _miniCam.camera = [SCNCamera camera];
+    _miniCam.camera.fieldOfView = 52; _miniCam.camera.zFar = 300;
+    _miniCam.position = V3(0, 46, 34);
+    SCNNode *mc = [SCNNode node]; mc.position = V3(0, 6, 0);
+    [scene.rootNode addChildNode:mc];
+    _miniCam.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:mc]];
+    [scene.rootNode addChildNode:_miniCam];
+
     _scn = [[SCNView alloc] initWithFrame:self.bounds];
     _scn.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _scn.scene = scene;
@@ -137,18 +195,44 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     _scn.rendersContinuously = NO;
     [self addSubview:_scn];
 
+    // cockpit framing (over the scene, under the overlays)
+    _cockpit = [[FlightCockpit alloc] initWithFrame:self.bounds];
+    _cockpit.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [self addSubview:_cockpit];
+
+    // minimap — a second view of the SAME scene from the external camera, inset
+    // top-right with a border (the old third-person view, as a 3D map)
+    CGFloat mw = 230, mh = 158;
+    _mini = [[SCNView alloc] initWithFrame:
+        NSMakeRect(self.bounds.size.width-mw-12, self.bounds.size.height-mh-12, mw, mh)];
+    _mini.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+    _mini.scene = _scn.scene; _mini.pointOfView = _miniCam;
+    _mini.backgroundColor = [NSColor colorWithSRGBRed:0.03 green:0.04 blue:0.06 alpha:1];
+    _mini.rendersContinuously = NO;
+    _mini.wantsLayer = YES; _mini.layer.borderWidth = 1.0; _mini.layer.cornerRadius = 6;
+    _mini.layer.borderColor = [NSColor colorWithSRGBRed:0.3 green:0.7 blue:0.5 alpha:0.85].CGColor;
+    [self addSubview:_mini];
+    NSTextField *ml = [NSTextField labelWithString:@"MAP  ·  ● fly   ◆ food"];
+    ml.font = [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightSemibold];
+    ml.textColor = [NSColor colorWithSRGBRed:0.4 green:1 blue:0.7 alpha:0.9];
+    ml.frame = NSMakeRect(7, mh-15, mw-12, 12);
+    ml.autoresizingMask = NSViewMaxXMargin;
+    [_mini addSubview:ml];
+
+    // HUD (top, above everything)
     _hud = [NSTextField labelWithString:@""];
     _hud.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
     _hud.textColor = [NSColor colorWithSRGBRed:0.4 green:1 blue:0.7 alpha:1];
-    _hud.frame = NSMakeRect(14, self.bounds.size.height-76, 620, 62);
+    _hud.frame = NSMakeRect(14, self.bounds.size.height-76, 560, 62);
     _hud.autoresizingMask = NSViewMaxXMargin | NSViewMinYMargin;
     _hud.maximumNumberOfLines = 4;
-    [_scn addSubview:_hud];
+    [self addSubview:_hud];
 }
 
 - (void)setActive:(BOOL)active {
     _active = active;
     _scn.rendersContinuously = active;
+    _mini.rendersContinuously = active;
     if (active) { if (!_fly.running) [_fly start]; _lastT = 0; }
     else { _fly.smellLeftHz = _fly.smellRightHz = 0; _fly.lightLeftHz = _fly.lightRightHz = 0; }
 }
@@ -251,8 +335,9 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     if (_pos.y > ALT_MAX) { _pos.y = ALT_MAX; if (_pitch > 0) _pitch = 0; }
     _flyNode.position = _pos;
 
-    // FIRST-PERSON camera: ride the eye, look along the heading
-    _camNode.position  = V3(_pos.x + fwd.x*0.45, _pos.y + 0.12, _pos.z + fwd.z*0.45);
+    // FIRST-PERSON camera: at the eye (led ahead of the body so the fly itself
+    // stays out of frame here but still shows on the map), looking along heading
+    _camNode.position  = V3(_pos.x + fwd.x*1.8, _pos.y + 0.12, _pos.z + fwd.z*1.8);
     _lookNode.position = V3(_pos.x + fwd.x*20,  _pos.y + fwd.y*20, _pos.z + fwd.z*20);
 
     if (vdist(_pos, _foodPos) < CATCH) { _caught++; [self _placeFood]; _calib = 0; }
