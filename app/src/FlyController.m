@@ -18,6 +18,7 @@
     FlySet _motor, _dn;                              // motor + descending outputs
     FlySet _smellL, _smellR, _lightL, _lightR, _dnL, _dnR;   // bilateral (3D flight)
     FlySet _steerL, _steerR;                                 // DNa steering DNs L/R
+    FlySet _escL, _escR;                                     // DNp escape/loom DNs L/R
 
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
@@ -82,6 +83,10 @@
     // descending neurons, far cleaner than averaging all 1,303 descending cells.
     _steerL = flysim_set_by_celltype_prefix(_sim, "DNa", SIDE_LEFT);
     _steerR = flysim_set_by_celltype_prefix(_sim, "DNa", SIDE_RIGHT);
+    // the DNp "posterior" cluster (DNp01 giant fiber + the loom-sensitive escape
+    // DNs) split by side — the brain's collision-avoidance / escape command.
+    _escL = flysim_set_by_celltype_prefix(_sim, "DNp", SIDE_LEFT);
+    _escR = flysim_set_by_celltype_prefix(_sim, "DNp", SIDE_RIGHT);
 }
 
 // apply every UI sensory clamp to the model (called each sim chunk + on step)
@@ -273,6 +278,8 @@ static int FSSuperclassForName(NSString *n) {
     s.dnRightRate= flysim_set_rate(_sim, _dnR);
     s.steerLeftRate = flysim_set_rate(_sim, _steerL);
     s.steerRightRate= flysim_set_rate(_sim, _steerR);
+    s.escLeftRate   = flysim_set_rate(_sim, _escL);
+    s.escRightRate  = flysim_set_rate(_sim, _escR);
     s.lastSpikes = flysim_last_spike_count(_sim);
     s.simTime    = flysim_sim_time(_sim);
 

@@ -33,6 +33,8 @@ typedef struct {
     float    dnRightRate;    // right descending
     float    steerLeftRate;  // left  DNa steering family (clean turn command)
     float    steerRightRate; // right DNa steering family
+    float    escLeftRate;    // left  DNp cluster (visual / looming escape)
+    float    escRightRate;   // right DNp cluster
     uint32_t lastSpikes;     // spikes in the most recent step
     double   simTime;        // accumulated biological seconds
     double   stepsPerSec;    // measured sim throughput

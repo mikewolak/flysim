@@ -22,11 +22,13 @@
 #define ANT_SPR    2.4
 #define V_SAMPLE   1.4
 #define CRUISE     7.0
-#define CATCH      5.0
+#define CATCH      6.5
 #define YAW_GAIN   0.45
-#define YAW_MAX    2.2
+#define YAW_MAX    2.6
 #define YAW_DEAD   0.4
 #define PITCH_GAIN 5.0
+#define ESC_GAIN   1.10     // DNp escape asymmetry → veer-away yaw (gated by loom)
+#define LOOM_RANGE 6.0      // a pillar within this, in front, looms
 
 static SCNVector3 V3(CGFloat x, CGFloat y, CGFloat z){ return SCNVector3Make(x,y,z); }
 static CGFloat vdist(SCNVector3 a, SCNVector3 b){
@@ -155,7 +157,7 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
     double _yaw, _pitch, _lastT, _castPhase, _turnLP;
     double _camYaw, _camPitch, _camRoll;     // smoothed camera attitude (anti-jitter)
     int    _caught, _calib;
-    double _baseline;
+    double _baseline, _escBaseline, _curLoom;
 }
 
 - (instancetype)initWithFly:(FlyController *)fly frame:(NSRect)frame {
@@ -187,7 +189,7 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
 
     // scattered glowing landmark pillars — depth + motion reference as you fly
     _pillarPts = [NSMutableArray array];
-    for (int i = 0; i < 26; i++) {
+    for (int i = 0; i < 13; i++) {
         CGFloat px = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
         CGFloat pz = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
         CGFloat h  = 8 + arc4random_uniform(18);
@@ -342,6 +344,7 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
 - (void)_resetFlight {
     _pos = V3(-WORLD*0.7, 9, -WORLD*0.7);
     _yaw = 0.6; _pitch = 0; _lastT = 0; _calib = 0; _baseline = 0; _turnLP = 0;
+    _escBaseline = 0; _curLoom = 0;
     _camYaw = _yaw; _camPitch = 0; _camRoll = 0;
     [self _placeFood]; _flyNode.position = _pos;
 }
@@ -370,7 +373,9 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
     _fly.smellLeftHz  = (float)(oL * MAXOLF);
     _fly.smellRightHz = (float)(oR * MAXOLF);
 
-    // SENSE 2 — vision (target fixation): stimulate the eye the food lands on
+    // SENSE 2 — vision. The eyes report the FOOD (a target to fixate) and any
+    // looming PILLAR (an obstacle). Both stimulate the photoreceptors; the brain's
+    // DNa neurons steer toward the target, its DNp escape neurons veer away.
     double tx = _foodPos.x - _pos.x, tz = _foodPos.z - _pos.z;
     double th = hypot(tx, tz); if (th < 1e-3) th = 1e-3;
     double ux = tx/th, uz = tz/th;
@@ -379,25 +384,46 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
     BOOL   visible = dotF > -0.25;
     double rfrac = 0.5 - 0.5*(bearing/(M_PI*0.55));
     if (rfrac < 0) rfrac = 0; if (rfrac > 1) rfrac = 1;
-    _fly.lightLeftHz  = (float)(visible ? MAXVIS*(1.0-rfrac) : 0);
-    _fly.lightRightHz = (float)(visible ? MAXVIS*rfrac       : 0);
-    if (visible) { _fly.smellLeftHz = 0; _fly.smellRightHz = 0; }   // vision-only when fixating
+    double eyeL = visible ? (1.0 - rfrac) : 0.0, eyeR = visible ? rfrac : 0.0;
 
-    // READ the brain's steering command — the DNa turn-descending family (L−R),
-    // far cleaner than averaging all 1,303 descending cells.
+    // nearest pillar looming in front — its bearing + strength, added to the eyes
+    double loom = 0, loomBearing = 0;
+    for (NSValue *v in _pillarPts) {
+        CGPoint p = v.pointValue;
+        double dx = p.x - _pos.x, dz = p.y - _pos.z, dd = hypot(dx,dz);
+        if (dd < 0.5 || dd > LOOM_RANGE) continue;
+        double pdot = sy*(dx/dd) + cy*(dz/dd);
+        if (pdot < 0.4) continue;                          // only what's ahead
+        double l = (1.0 - dd/LOOM_RANGE) * pdot;           // closer + head-on → louder
+        if (l > loom) { loom = l; loomBearing = atan2(sy*(dz/dd) - cy*(dx/dd), pdot); }
+    }
+    if (loom > 0.02) {
+        double pr = 0.5 - 0.5*(loomBearing/(M_PI*0.55));
+        if (pr < 0) pr = 0; if (pr > 1) pr = 1;
+        eyeL += loom*(1.0 - pr); eyeR += loom*pr;          // the pillar fills that eye
+    }
+    if (eyeL > 1) eyeL = 1; if (eyeR > 1) eyeR = 1;
+    _fly.lightLeftHz  = (float)(MAXVIS * eyeL);
+    _fly.lightRightHz = (float)(MAXVIS * eyeR);
+    if (eyeL > 0.02 || eyeR > 0.02) { _fly.smellLeftHz = 0; _fly.smellRightHz = 0; }
+
+    // READ the brain: DNa steering family (approach) + DNp cluster (escape)
     FlySnapshot s = [_fly snapshot];
-    double asym = s.steerLeftRate - s.steerRightRate;
-    if (_calib == 0) { _baseline = asym; _calib = 1; }
+    double asym  = s.steerLeftRate - s.steerRightRate;     // DNa  → toward food
+    double easym = s.escLeftRate   - s.escRightRate;       // DNp  → away from loom
+    if (_calib == 0) { _baseline = asym; _escBaseline = easym; _calib = 1; }
+    if (loom < 0.02) _escBaseline += (easym - _escBaseline) * 0.02;   // learn escape bias when clear
 
-    if (visible) {
-        if (fabs(bearing) < 0.15) _baseline += (asym - _baseline) * 0.02;
-        double turn = asym - _baseline;
-        if (fabs(turn) < YAW_DEAD) turn = 0;
-        _turnLP += (turn - _turnLP) * 0.10;   // low-pass the noisy steering command
-        double yawRate = _turnLP * YAW_GAIN;
+    if (visible || loom > 0.02) {
+        if (fabs(bearing) < 0.15 && loom < 0.02) _baseline += (asym - _baseline) * 0.02;
+        double fixTurn = asym - _baseline; if (fabs(fixTurn) < YAW_DEAD) fixTurn = 0;
+        double escTurn = easym - _escBaseline;
+        double cmd = fixTurn*YAW_GAIN - escTurn*ESC_GAIN*loom;   // approach minus escape
+        _turnLP += (cmd - _turnLP) * 0.30;   // responsive control (camera smooths the view)
+        double yawRate = _turnLP;
         if (yawRate >  YAW_MAX) yawRate =  YAW_MAX;
         if (yawRate < -YAW_MAX) yawRate = -YAW_MAX;
-        _yaw -= yawRate * dt;                 // DNa polarity: food-right → bank right
+        _yaw -= yawRate * dt;
         double pitchT = atan2(_foodPos.y - _pos.y, th);
         if (pitchT >  0.7) pitchT =  0.7; if (pitchT < -0.7) pitchT = -0.7;
         _pitch += (pitchT - _pitch) * 0.10;
@@ -405,6 +431,7 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
         _castPhase += dt * 1.5;
         _yaw += sin(_castPhase) * 1.8 * dt;
     }
+    _curLoom = loom;   // for the HUD
 
     if (fabs(_pos.x) > WORLD || fabs(_pos.z) > WORLD) {
         double toC = atan2(-_pos.x, -_pos.z), d = toC - _yaw;
@@ -442,13 +469,14 @@ static double angWrap(double a){ while(a>M_PI)a-=2*M_PI; while(a<-M_PI)a+=2*M_PI
     static int hk = 0; if ((hk++ % 6) == 0) {
         NSString *txt = [NSString stringWithFormat:
             @"FIRST-PERSON FLIGHT — what the fly sees, steered by its brain\n"
-            @"DNa steering  L %5.1f  R %5.1f   (L−R %+5.1f Hz → yaw)\n"
-            @"eyes  L %3.0f%%  R %3.0f%%   ·   smell %3.0f%%   ·   caught: %d\n"
+            @"DNa approach  L %4.1f R %4.1f    ·    DNp escape  L %4.1f R %4.1f\n"
+            @"eyes  L %3.0f%%  R %3.0f%%   ·   loom %3.0f%%   ·   caught: %d\n"
             @"%@",
-            s.steerLeftRate, s.steerRightRate, (s.steerLeftRate - s.steerRightRate),
-            _fly.lightLeftHz/MAXVIS*100, _fly.lightRightHz/MAXVIS*100, odorHead*100, _caught,
-            visible ? @"vision: fixating the food → descending → turn toward it"
-                    : @"food out of view — casting to find it"];
+            s.steerLeftRate, s.steerRightRate, s.escLeftRate, s.escRightRate,
+            _fly.lightLeftHz/MAXVIS*100, _fly.lightRightHz/MAXVIS*100, _curLoom*100, _caught,
+            (_curLoom > 0.12) ? @"PILLAR LOOMING → DNp escape neurons → veering away"
+              : visible ? @"vision: fixating the food → DNa neurons → turn toward it"
+                        : @"food out of view — casting to find it"];
         dispatch_async(dispatch_get_main_queue(), ^{ self->_hud.stringValue = txt; });
     }
     if ((hk % 2) == 0) {                          // attitude indicator + map, ~30 Hz
