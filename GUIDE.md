@@ -52,36 +52,49 @@ Pro music studio). Here's every part.
 | **CPU / GPU·Metal** | Which chip does the math. GPU is faster; the answer is identical. |
 | **Speed (1× … MAX)** | How fast time runs. **1× = real fly speed.** MAX = "fast-forward," as fast as the computer can go. |
 | **60/90/120 Hz** | How often the *picture* refreshes (like a screen's frame rate). Doesn't change the brain, just the smoothness of what you see. |
-| **⚙ Settings** | Opens the settings page (the remote-control port — see §7). |
+| **⚙ Settings** | Opens the settings page (the remote-control port — see §8). |
 
-### The left panel — STIMULUS (what you feed the fly)
+### Two tabs: 🧠 Brain and ✈ Flight
 
-Three big illuminated buttons. These are the fly's **sense of taste**:
+The top has a **Brain / Flight** switch. **Brain** is the 2D view below (senses
+in, brain lighting up, tongue out). **Flight** is a first-person 3D view where
+the fly *flies itself* to food using its real navigation neurons — see §6.
 
-- **SUGAR** 🟠 — "yummy food!" In a real fly, tasting sugar makes it stick out
-  its tongue to eat. This is the main thing FlySim demonstrates.
-- **WATER** 🔵 — "something drinkable." Uses many of the same taste cells as sugar.
-- **BITTER** 🔴 — "yuck, poison!" Tells the fly *not* to eat.
+### The left panel — STIMULUS (the fly's eight senses)
 
-Press a button to "put that flavor on the fly's tongue." The **CLAMP RATE
-slider** below sets how *strong* the taste is (how hard those taste cells are
-driven, in pulses per second). 150 is a good strong taste.
+Eight illuminated buttons — every sense that's tagged in the real connectome:
+
+- **SUGAR** 🟠 / **WATER** 🔵 / **BITTER** 🔴 — **taste.** Sugar = "yummy, eat!"
+  (tongue out), water = drinkable, bitter = "yuck" (aversive — the fly rejects it).
+- **SMELL** — **olfactory** (antennae). Drives the search: the fly climbs an odor
+  gradient to find food.
+- **TOUCH** — **mechanosensory.** The fly startles.
+- **HEAT** / **HUMIDITY** — **thermo / hygrosensory.** The fly recoils from heat.
+- **LIGHT** — **vision** (photoreceptors). The fly buzzes its wings.
+
+Each sense produces a **visible reaction** on the animated fly. Press a button to
+drive that sense; the **CLAMP RATE slider** sets how strong it is (pulses per
+second). 150 is a good strong stimulus.
 
 ### The middle — POPULATION ACTIVITY (the big colorful scrolling graph)
 
 This is the **"brain lighting up" view** — the star of the show.
 
-- Picture the 139,000 neurons squished into **128 horizontal stripes**, top to
-  bottom. Each stripe is a different region of the brain.
+- The 139,000 neurons are squished into **128 horizontal stripes**, and they're
+  **ordered by job**: the **senses are at the bottom**, then the optic lobe, then
+  the central brain, then the command and **motor neurons at the top**.
 - Time scrolls **left → right**: the right edge is "right now," and older
   activity slides off to the left (like a heart-rate monitor or a seismograph).
-- **Color = how busy that region is.** Dark/black = quiet, asleep. Then it
-  climbs purple → orange → bright yellow as cells fire harder.
+- **Color = how busy that region is.** Dark/black = quiet. Then it climbs purple
+  → orange → bright yellow as cells fire harder.
+- **Hover any band** and a tooltip tells you what it is — e.g. *"optic lobe ·
+  visual processing — 77,539 neurons (55.7%)."* (Yes: **over half the fly brain
+  is vision.**)
 
-So when you press **SUGAR**, you'll literally see a band light up and a wave of
-color spread through the brain as the "I taste sugar!" signal travels from the
-tongue, through the brain, to the muscles. **That traveling wave is a thought,
-basically.**
+Because it's ordered bottom-to-top by job, when you press **SUGAR** you see the
+*bottom* (taste) band light up first, then a wave of color climb **upward** to
+the motor band as the "I taste sugar!" signal travels from tongue to muscles.
+**That upward traveling wave is a thought, basically.**
 
 ### The bottom — MOTOR OUTPUT (what the fly decides to *do*)
 
@@ -108,16 +121,25 @@ Two small bars on the right are "tap points" deeper in the circuit:
 1. Press **RUN**. The activity graph starts scrolling; everything's calm (mostly dark).
 2. Click **SUGAR**. Watch the graph light up, the **MN9** meter jump, and
    **PROBOSCIS EXTENSION** climb toward 42°. *The fly just decided to eat.*
-3. Now also click **BITTER** while sugar is on. In this real connectome the
-   bitter "stop!" signal pushes back on the feeding circuit — a tug-of-war you
-   can watch in the meters.
-4. Click the buttons off, hit **RESET**, and it settles back to calm.
-5. Flip **GPU·Metal** and set speed to **MAX** — same behavior, but now the whole
-   brain is running several times faster than a real fly. The "steps/sec" and
-   "× realtime" numbers on the status line show how fast.
+3. Try **SMELL** + **PLACE FOOD**: the fly smells the odor and **walks to it**,
+   climbing the gradient, then sticks out its tongue once it arrives. Drag the
+   food and it turns around and re-finds it.
+4. Poke other senses: **LIGHT** buzzes its wings, **TOUCH** makes it startle,
+   **HEAT** makes it recoil. Each sense lights its own band at the bottom of the
+   activity graph.
+5. Click the buttons off, hit **RESET**, and it settles back to calm.
+6. Flip **GPU·Metal** and set speed to **MAX** — same behavior, several times
+   faster than a real fly. The "steps/sec" / "× realtime" numbers show how fast.
+7. Switch to the **✈ Flight** tab and watch the fly fly *itself* to food (§6).
 
-That's the whole loop: **taste in → brain processes → tongue moves out.** Exactly
-what a real fly does, running on your laptop.
+That's the whole loop: **senses in → brain processes → action out.** Exactly what
+a real fly does, running on your laptop.
+
+> *A note on bitter:* in a real fly, bitter taste suppresses feeding. The exact
+> inhibitory wiring for that isn't strong in this connectome subset, so FlySim is
+> honest about it — bitter is shown as an **aversive** taste the fly rejects, not
+> a fake "feeding off switch." The sugar→feeding→tongue chain, though, is real and
+> measurable end to end.
 
 ---
 
@@ -136,15 +158,39 @@ coming from cells that *just* fired. Same answer, far less work.
 
 ---
 
-## 6. The honest limits (what it is NOT)
+## 6. The Flight view — the fly flies *itself*
+
+Switch to the **✈ Flight** tab for a first-person 3D world: you're looking out of
+the fly's eyes as it flies to a glowing food orb, dodging blue pillars. The point
+is that **the brain is doing the flying** — it's not following a scripted path:
+
+- **Finding food (vision + smell).** Where the food sits drives the fly's left vs.
+  right eyes and antennae. The brain's real **steering neurons** (the "DNa" cluster
+  — the fly's actual turn-command cells) read out stronger on one side and **bank
+  the fly toward the food.**
+- **Dodging pillars (escape).** A pillar that's close and dead-ahead "looms" — it
+  stimulates the eyes on that side, and the brain's real **escape neurons** (the
+  "DNp" cluster, including the famous *giant fiber*) fire and **veer the fly away.**
+- A gyro (bottom-left) shows the fly's tilt; a minimap (top-right) shows where it
+  is. The horizon banks into turns but stays upright — fruit flies don't cruise
+  upside down.
+
+So the steering you watch is genuine brain output: senses → real descending
+command neurons → turn. (The wing *muscles* themselves live in the nerve cord,
+which isn't in this dataset — see the next section — so we translate the brain's
+steering command into the flight, the same honest way the tongue follows MN9.)
+
+---
+
+## 7. The honest limits (what it is NOT)
 
 - **It's a reflex, not a pet.** It reacts to what you feed it. It does **not
   learn, remember, or have feelings** — there's no mechanism for that in this
   model, by design.
 - **It's the brain only — no body below the neck.** A fly's walking and flying
-  muscles are controlled by the *nerve cord* (like a spinal cord), which isn't in
-  this dataset. So FlySim does feeding/tasting/grooming-type behaviors, not
-  walking around.
+  *muscles* are controlled by the *nerve cord* (like a spinal cord), which isn't
+  in this dataset. The Flight view uses the brain's real **steering commands** to
+  fly a stand-in body; it doesn't simulate the wing muscles themselves.
 - **It's one snapshot of one fly.** Real brains vary and adapt; this is a fixed
   wiring diagram.
 
@@ -154,7 +200,7 @@ science validated.
 
 ---
 
-## 7. The "remote control" (for the curious / AI folks)
+## 8. The "remote control" (for the curious / AI folks)
 
 FlySim has a built-in control server so other programs — including an AI
 assistant — can **press the buttons and read the meters automatically**, without
@@ -175,17 +221,20 @@ fly — feed it tastes, watch what fires, and reason about the result.
 
 ---
 
-## 8. What could be added next
+## 9. What could be added next
 
-- **More senses:** smell, touch (antennae), and vision are all in the wiring map —
-  we just haven't wired their buttons up yet.
-- **A 3D fly:** drive an animated fly head so the tongue physically extends on
-  screen when MN9 fires, and re-trigger taste when the tongue touches the food
-  (closing the loop through a virtual world).
-- **Grooming:** touch an antenna → the fly sweeps it with a leg.
-- **More speed:** there's still headroom to make it run even faster than 3.7×.
-- **The body (big project):** combine with a brain+nerve-cord dataset to attempt
-  walking/flight — that's an open research frontier, not just a coding task.
+Done since the first version: **all eight senses are wired up**, each with a
+visible reaction; the activity strip is **ordered by brain region** with hover
+labels; and the **3D Flight view** flies the fly with its real steering neurons.
+Still on the list:
+
+- **Learning / memory:** the mushroom-body circuitry is in the wiring map; adding
+  plasticity would let it actually *learn* an odor, not just react.
+- **Grooming & more motor programs:** touch an antenna → sweep it with a leg.
+- **More speed:** there's still headroom to push past 3.7× real-time.
+- **The body (big project):** combine with a brain+nerve-cord dataset to simulate
+  the actual flight/walking muscles, not just the brain's command to them — an
+  open research frontier, not just a coding task.
 
 ---
 

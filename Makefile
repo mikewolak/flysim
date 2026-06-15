@@ -9,7 +9,7 @@
 # Signing identity is developer-specific and NOT committed. Copy
 # signing.env.template → signing.env and fill in your own values (gitignored).
 
-VERSION := 0.3
+VERSION := 0.4
 
 # load signing identity (SIGN_IDENTITY / NOTARY_PROFILE_NAME) for `release`
 -include signing.env

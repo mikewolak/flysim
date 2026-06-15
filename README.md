@@ -7,7 +7,7 @@ connectome (139,266 neurons / 16.8M synapses) run as a leaky integrate-and-fire
 network on Apple Silicon, with a Logic-Pro-styled Cocoa GUI and a full MCP
 control plane. See `FLYSIM_BUILD.md` for the design.
 
-![FlySim](docs/screenshot.png)
+![FlySim — Brain view](docs/screenshot-brain.png)
 
 Drive any of the fly's **senses** (taste · smell · touch · heat · humidity ·
 vision — every one a tagged afferent population from the real connectome) and
@@ -15,7 +15,32 @@ watch every **output** (MN9 / motor neurons / descending command neurons) fire
 in real time. Place a drop of sugar and the animated fly **smells its way to it**
 — climbing the odor gradient with its antennae (real olfactory ORN firing), then
 extending its proboscis to drink once it tastes it. Drag the food and it turns
-around and re-finds it.
+around and re-finds it. Every sense produces a **visible reaction**: light buzzes
+the wings, touch startles, heat makes it recoil, bitter is rejected as aversive.
+
+### The activity strip reads as information flow
+
+The scrolling heatmap is **ordered by processing stage**, not file order: sensory
+afferents at the bottom → optic lobe → central brain → descending → motor at the
+top. Clamp one sense and *its* band lights, then the signal propagates **up** to
+the motor rows. **Hover any band** for what it is — e.g. *"optic lobe · visual
+processing — 77,539 neurons (55.7%)"*. More than half the fly brain is vision.
+
+### Flight view — the fly flies itself, steered by its connectome
+
+![FlySim — first-person flight](docs/screenshot-flight.png)
+
+Switch to the **Flight** tab for a first-person 3D view of the fly navigating to
+food — and it's the *brain* doing the flying, not a scripted path:
+
+- **Vision + smell → approach.** Food bearing drives the left/right photoreceptors
+  and olfactory ORNs; the real **DNa steering descending neurons** (the anterior
+  turn cluster) read out left/right and bank the fly toward the target.
+- **Looming → escape.** A pillar that's close and ahead stimulates the
+  photoreceptors on its side; the brain's **DNp escape cluster** (DNp01 giant
+  fiber + the loom-sensitive DNs) fires asymmetrically and **veers the fly away**.
+- Net heading = DNa-toward − DNp-escape. A gyro attitude indicator and a top-down
+  minimap track the flight; the horizon banks into turns but stays upright.
 
 ## Performance — the whole fly brain, faster than life
 
@@ -111,11 +136,17 @@ output close the loop:
 | in (afferent clamp) | population | out (readout) | population |
 |---|--:|---|--:|
 | `sugar` / `water` taste | 129 | `mn9` proboscis motor | 12 |
-| `bitter` taste | 65 | `feeding` interneurons | — |
+| `bitter` taste | 65 | `feeding` interneurons (sugar→MN9 premotor) | 40 |
 | `smell` (olfactory ORNs) | 2,282 | `motor` (all motor neurons) | 110 |
 | `touch` (mechanosensory) | 2,671 | `descending` (brain→body) | 1,303 |
-| `heat` (thermo) · `humidity` (hygro) | 29 · 74 | | |
-| `light` (photoreceptors R1-6/R7/R8) | 11,385 | | |
+| `heat` (thermo) · `humidity` (hygro) | 29 · 74 | `DNa` steering (approach, L/R) | 56 |
+| `light` (photoreceptors R1-6/R7/R8) | 11,385 | `DNp` escape (loom/giant-fiber, L/R) | 326 |
+
+The **feeding interneurons** are the hop-1 premotor stage — neurons excited by
+sugar GRNs that in turn drive MN9 — tagged during the pack; clamp sugar and the
+meter tracks it live. (Bitter GRNs are cholinergic here, so this connectome
+subset shows no measurable feeding *veto* — bitter is presented as aversive, not
+as a false inhibition.)
 
 ## MCP
 
@@ -129,5 +160,7 @@ curl -XPOST 127.0.0.1:7777/tool/clamp -d '{"modality":"smell","hz":150}'
 curl -XPOST 127.0.0.1:7777/tool/clamp_set -d '{"kind":"superclass","name":"descending"}'
 curl -XPOST 127.0.0.1:7777/tool/food  -d '{"on":true}'   # drop sugar; the fly hunts it
 curl 127.0.0.1:7777/data/behavior                # the fly: walking/arrived/feeding
+curl 127.0.0.1:7777/data/steering                # DNa approach + DNp escape, L/R/turn
+curl -XPOST 127.0.0.1:7777/tool/light_lr -d '{"left":180,"right":20}'  # bias the eyes
 curl -N 127.0.0.1:7777/stream?hz=60              # watch everything live (SSE)
 ```

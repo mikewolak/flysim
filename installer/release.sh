@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."                       # repo root
 
-VERSION="${VERSION:-0.3}"
+VERSION="${VERSION:-0.4}"
 SIGN_IDENTITY="${SIGN_IDENTITY:?set SIGN_IDENTITY (see signing.env)}"
 NOTARY_PROFILE="${NOTARY_PROFILE_NAME:-rs-notary}"
 

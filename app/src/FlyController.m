@@ -111,14 +111,19 @@
 // with its fractional y-range [lo,hi) and a tooltip caption with size + share —
 // so hovering a band tells you which part of the brain you're looking at.
 - (NSArray<NSDictionary *> *)activityStages {
-    static NSArray *names;
-    if (!names) names = @[ @"sugar receptors · taste", @"water receptors · taste",
+    static NSArray *names, *shorts;
+    if (!names) {
+        names = @[ @"sugar receptors · taste", @"water receptors · taste",
         @"bitter receptors · taste", @"olfactory receptors · smell",
         @"mechanosensory · touch", @"thermosensory · heat", @"hygrosensory · humidity",
         @"photoreceptors · vision input", @"other sensory afferents",
         @"optic lobe · visual processing", @"visual projection neurons",
         @"central brain interneurons", @"ascending + endocrine neurons",
         @"descending neurons · brain→body", @"motor neurons · output" ];
+        shorts = @[ @"sugar", @"water", @"bitter", @"smell", @"touch", @"heat", @"humidity",
+        @"vision in", @"sensory", @"optic lobe", @"visual proj", @"central brain",
+        @"ascending", @"descending", @"motor" ];
+    }
     uint32_t cnt[16]; flysim_stage_counts(_sim, cnt);
     double N = _neuronCount > 0 ? _neuronCount : 1;
     NSMutableArray *out = [NSMutableArray array];
@@ -131,7 +136,7 @@
             names[k],
             [NSNumberFormatter localizedStringFromNumber:@(c) numberStyle:NSNumberFormatterDecimalStyle],
             100.0 * c / N];
-        [out addObject:@{ @"lo":@(lo), @"hi":@(hi), @"label":cap }];
+        [out addObject:@{ @"lo":@(lo), @"hi":@(hi), @"label":cap, @"short":shorts[k] }];
     }
     return out;
 }

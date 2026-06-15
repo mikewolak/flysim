@@ -203,19 +203,22 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
 }
 - (void)_rebuildTip {
     [self removeAllToolTips];
-    if (_stages.count) [self addToolTipRect:self.bounds owner:self userData:NULL];
+    // one tooltip rect PER band so moving between bands reliably re-fires the
+    // tooltip (a single big rect only fires once on entry — that was the bug).
+    CGFloat h = self.bounds.size.height, w = self.bounds.size.width;
+    for (NSUInteger i = 0; i < _stages.count; ++i) {
+        NSDictionary *st = _stages[i];
+        CGFloat yTop = h * (1.0 - [st[@"hi"] doubleValue]);   // flipped: y down from top
+        CGFloat yBot = h * (1.0 - [st[@"lo"] doubleValue]);
+        NSRect r = NSMakeRect(0, yTop, w, MAX(1.0, yBot - yTop));
+        [self addToolTipRect:r owner:self userData:(void *)(intptr_t)i];
+    }
 }
 - (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self _rebuildTip]; }
-// one tooltip rect over the whole strip; resolve the band from the hover point.
 - (NSString *)view:(NSView *)v stringForToolTip:(NSToolTipTag)tag
              point:(NSPoint)pt userData:(void *)data {
-    CGFloat h = self.bounds.size.height; if (h <= 0) return @"";
-    CGFloat f = 1.0 - pt.y / h;                 // flipped: y from top → fraction from bottom
-    for (NSDictionary *st in _stages) {
-        if (f >= [st[@"lo"] doubleValue] && f < [st[@"hi"] doubleValue])
-            return st[@"label"];
-    }
-    return @"neural activity";
+    NSUInteger i = (NSUInteger)(intptr_t)data;
+    return i < _stages.count ? _stages[i][@"label"] : @"neural activity";
 }
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)f {
@@ -274,6 +277,28 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
     CGContextRestoreGState(ctx);
 
     CGImageRelease(img); CGContextRelease(bmp); CGColorSpaceRelease(cs);
+
+    // ---- processing-stage bands: a faint divider at each boundary + a dim label
+    //      where the band is tall enough, so you can SEE the structure (and hover
+    //      any band for the full caption). Bottom = senses, top = motor. --------
+    NSDictionary *bandAttr = @{ NSFontAttributeName:[FSStyle mono:8 weight:NSFontWeightBold],
+        NSForegroundColorAttributeName:[NSColor colorWithWhite:0.96 alpha:0.92],
+        NSStrokeColorAttributeName:[NSColor colorWithWhite:0 alpha:0.9],
+        NSStrokeWidthAttributeName:@(-3.5) };               // dark outline → reads on any band
+    for (NSDictionary *st in _stages) {
+        CGFloat hi = [st[@"hi"] doubleValue], lo = [st[@"lo"] doubleValue];
+        if (hi < 0.999) {                                   // divider (skip the very top edge)
+            CGFloat yTop = b.size.height * (1.0 - hi);
+            [[NSColor colorWithWhite:1 alpha:0.12] setStroke];
+            NSBezierPath *d = [NSBezierPath bezierPath];
+            [d moveToPoint:CGPointMake(0, yTop)]; [d lineToPoint:CGPointMake(b.size.width, yTop)];
+            d.lineWidth = 0.5; [d stroke];
+        }
+        if (b.size.height * (hi - lo) >= 11) {              // tall enough for a label
+            CGFloat yMid = b.size.height * (1.0 - (lo + hi)/2.0);
+            [st[@"short"] drawAtPoint:CGPointMake(6, yMid - 6) withAttributes:bandAttr];
+        }
+    }
 
     // subtle scanline frame
     [[FSStyle panelStroke] setStroke];

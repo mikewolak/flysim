@@ -48,6 +48,22 @@ Two clocks: the sim runs at a fixed ~1 ms biological timestep; the renderer runs
 at display rate and just samples the latest state. Never lock one sim substep to
 one frame.
 
+### 0.1 App subsystems (v0.4)
+
+The Cocoa app wraps the core in two views over one shared `FlyController`:
+
+- **Brain view (2D).** Eight clampable senses; the animated `FSFlyView` (smell →
+  walk, taste → proboscis, plus a reaction per sense); and the `FSActivityView`
+  strip, now **stage-ordered** — `build_order()` in the core sorts neurons by
+  processing stage (sensory → optic → central → descending → motor) and caches a
+  permutation, so `flysim_ordered_bins()` makes the strip read bottom-to-top as
+  information flow. Per-band hover tooltips come from `flysim_stage_counts()`.
+- **Flight view (3D, SceneKit).** A first-person flight loop drives bilateral
+  photoreceptor/ORN clamps from food bearing + pillar looming, reads the real
+  **DNa** steering and **DNp** escape descending clusters
+  (`flysim_set_by_celltype_prefix`), and turns net `DNa − DNp`. The look-at camera
+  uses `gimbalLockEnabled` so banking never inverts the horizon.
+
 ---
 
 ## 1. Model data — exact URLs
