@@ -812,8 +812,11 @@
     [_mcp registerData:@"/data/populations" doc:@"Discovery: every named clampable/readable population + size." provider:^id(NSDictionary *q){ (void)q; STRONG; return [s->_fly populations]; }];
     [_mcp registerData:@"/data/steering" doc:@"Bilateral descending-neuron output (the brain's steering command): left/right mean Hz + turn signal (right-left)." provider:^id(NSDictionary *q){ (void)q; STRONG;
         float dl=0, dr=0; [s->_fly descendingLeft:&dl right:&dr];
+        FlySnapshot sn = [s->_fly snapshot];
         return @{ @"dn_left_hz":@(dl), @"dn_right_hz":@(dr), @"turn":@(dr-dl),
-                  @"thrust":@((dl+dr)*0.5f), @"dn_left_n":@(s->_fly.dnLeftSize), @"dn_right_n":@(s->_fly.dnRightSize) }; }];
+                  @"thrust":@((dl+dr)*0.5f), @"dn_left_n":@(s->_fly.dnLeftSize), @"dn_right_n":@(s->_fly.dnRightSize),
+                  @"steer_left_hz":@(sn.steerLeftRate), @"steer_right_hz":@(sn.steerRightRate),
+                  @"steer_turn":@(sn.steerLeftRate - sn.steerRightRate) }; }];
     [_mcp registerData:@"/data/behavior" doc:@"The animated fly's visible state: MN9 Hz, proboscis deg + extension, walking, arrived-at-food, labellum contact, food, feeding." provider:^id(NSDictionary *q){ (void)q; STRONG;
         BOOL feeding = s->_foodBtn.isOn && s->_flyView.arrivedAtFood;
         return @{ @"mn9_hz": @(s->_fly ? [s->_fly snapshot].mn9Rate : 0),

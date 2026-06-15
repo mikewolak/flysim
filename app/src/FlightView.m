@@ -33,45 +33,58 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     CGFloat dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z; return sqrt(dx*dx+dy*dy+dz*dz);
 }
 
-// translucent first-person framing — the fly's own antennae + forelegs at the
-// edges of view, like looking out from inside its head.
-@interface FlightCockpit : NSView @end
-@implementation FlightCockpit
+// a gyroscope / attitude indicator: artificial-horizon ball (pitch) inside a
+// rotating compass ring (yaw), with a fixed fly symbol — shows the fly's attitude.
+@interface FlightGyro : NSView
+@property (nonatomic) CGFloat yaw, pitch;
+@end
+@implementation FlightGyro
 - (BOOL)isFlipped { return NO; }
-- (NSView *)hitTest:(NSPoint)p { (void)p; return nil; }   // pass mouse through
+- (NSView *)hitTest:(NSPoint)p { (void)p; return nil; }
+- (void)setYaw:(CGFloat)y { _yaw = y; }
+- (void)setPitch:(CGFloat)p { _pitch = p; }
 - (void)drawRect:(NSRect)d {
     (void)d;
-    CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
-    NSColor *dk = [NSColor colorWithWhite:0.015 alpha:0.55];
-    NSGradient *vg = [[NSGradient alloc] initWithColorsAndLocations:
-        [NSColor clearColor], 0.0, [NSColor colorWithWhite:0 alpha:0.0], 0.66,
-        [NSColor colorWithWhite:0 alpha:0.34], 1.0, nil];
-    [vg drawInRect:self.bounds relativeCenterPosition:NSZeroPoint];   // edge vignette
-    for (int s = -1; s <= 1; s += 2) {                                // two antennae
-        CGFloat bx = W*0.5 + s*W*0.03, tx = W*0.5 + s*W*0.17, ty = H*0.42;
-        NSBezierPath *a = [NSBezierPath bezierPath];
-        [a moveToPoint:NSMakePoint(bx, -4)];
-        [a curveToPoint:NSMakePoint(tx, ty)
-           controlPoint1:NSMakePoint(bx + s*W*0.02, H*0.15)
-           controlPoint2:NSMakePoint(tx - s*W*0.02, ty - H*0.12)];
-        a.lineWidth = 9; a.lineCapStyle = NSLineCapStyleRound; [dk setStroke]; [a stroke];
-        [dk setFill];
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(tx-8, ty-8, 16, 16)] fill];
-        for (int k = 1; k <= 4; k++) {                               // arista hairs
-            CGFloat t = k/5.0; NSPoint p0 = NSMakePoint(tx + s*t*W*0.05, ty + t*H*0.10);
-            NSBezierPath *h = [NSBezierPath bezierPath];
-            [h moveToPoint:p0]; [h lineToPoint:NSMakePoint(p0.x + s*15, p0.y + 9)];
-            h.lineWidth = 2; [h stroke];
-        }
-    }
-    for (int s = -1; s <= 1; s += 2) {                               // forelegs (corners)
-        CGFloat cx = (s < 0) ? 0 : W;
-        NSBezierPath *leg = [NSBezierPath bezierPath];
-        [leg moveToPoint:NSMakePoint(cx, 0)];
-        [leg lineToPoint:NSMakePoint(cx - s*W*0.12, H*0.17)];
-        [leg lineToPoint:NSMakePoint(cx - s*W*0.03, H*0.31)];
-        leg.lineWidth = 12; leg.lineCapStyle = NSLineCapStyleRound; [dk setStroke]; [leg stroke];
-    }
+    NSRect b = self.bounds; CGFloat cx = b.size.width/2, cy = b.size.height/2;
+    CGFloat R = MIN(cx,cy) - 4;
+    NSBezierPath *circ = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx-R,cy-R,2*R,2*R)];
+    [NSGraphicsContext saveGraphicsState]; [circ addClip];
+    // artificial horizon — pitch shifts it vertically (nose up → more sky)
+    CGFloat off = (_pitch/0.9)*R; if (off>R) off=R; if (off<-R) off=-R;
+    CGFloat hy = cy - off;
+    [[NSColor colorWithSRGBRed:0.16 green:0.40 blue:0.58 alpha:1] setFill];
+    NSRectFill(NSMakeRect(cx-R, hy, 2*R, (cy+R)-hy));
+    [[NSColor colorWithSRGBRed:0.34 green:0.23 blue:0.12 alpha:1] setFill];
+    NSRectFill(NSMakeRect(cx-R, cy-R, 2*R, hy-(cy-R)));
+    [[NSColor whiteColor] setStroke];
+    NSBezierPath *hl = [NSBezierPath bezierPath];
+    [hl moveToPoint:NSMakePoint(cx-R,hy)]; [hl lineToPoint:NSMakePoint(cx+R,hy)];
+    hl.lineWidth = 1.5; [hl stroke];
+    [[NSColor colorWithWhite:1 alpha:0.55] setStroke];      // pitch ladder
+    for (int k=-3;k<=3;k++){ if(!k) continue; CGFloat py=hy+(k*0.26/0.9)*R, w=(k%2)?R*0.20:R*0.40;
+        NSBezierPath *t=[NSBezierPath bezierPath];
+        [t moveToPoint:NSMakePoint(cx-w,py)]; [t lineToPoint:NSMakePoint(cx+w,py)]; t.lineWidth=1; [t stroke]; }
+    [NSGraphicsContext restoreGraphicsState];
+    // yaw compass ring (rotates as the fly turns)
+    [[NSColor colorWithWhite:1 alpha:0.7] setStroke];
+    for (int i=0;i<12;i++){ CGFloat a=(i*30.0)*M_PI/180.0 - _yaw + M_PI/2;
+        CGFloat r0=R-1, r1=(i%3==0)?R-9:R-5;
+        NSBezierPath *tk=[NSBezierPath bezierPath];
+        [tk moveToPoint:NSMakePoint(cx+r0*cos(a),cy+r0*sin(a))];
+        [tk lineToPoint:NSMakePoint(cx+r1*cos(a),cy+r1*sin(a))]; tk.lineWidth=(i%3==0)?2:1; [tk stroke]; }
+    [[NSColor colorWithSRGBRed:0.3 green:0.7 blue:0.5 alpha:0.95] setStroke]; circ.lineWidth=2; [circ stroke];
+    // fixed top index + centre fly symbol
+    [[NSColor colorWithSRGBRed:1 green:0.85 blue:0.2 alpha:1] setFill];
+    NSBezierPath *tri=[NSBezierPath bezierPath];
+    [tri moveToPoint:NSMakePoint(cx,cy+R-13)]; [tri lineToPoint:NSMakePoint(cx-5,cy+R-3)];
+    [tri lineToPoint:NSMakePoint(cx+5,cy+R-3)]; [tri closePath]; [tri fill];
+    [[NSColor colorWithSRGBRed:1 green:0.9 blue:0.3 alpha:1] setStroke];
+    NSBezierPath *fly=[NSBezierPath bezierPath];
+    [fly moveToPoint:NSMakePoint(cx-13,cy)]; [fly lineToPoint:NSMakePoint(cx-4,cy)];
+    [fly moveToPoint:NSMakePoint(cx+4,cy)];  [fly lineToPoint:NSMakePoint(cx+13,cy)];
+    fly.lineWidth=2.5; [fly stroke];
+    [[NSColor colorWithSRGBRed:1 green:0.9 blue:0.3 alpha:1] setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx-2.5,cy-2.5,5,5)] fill];
 }
 @end
 
@@ -83,7 +96,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     SCNView   *_scn, *_mini;
     SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode, *_miniCam;
     NSTextField *_hud;
-    FlightCockpit *_cockpit;
+    FlightGyro *_gyro;
     BOOL _active;
 
     SCNVector3 _pos, _foodPos;
@@ -102,9 +115,13 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 
 - (void)_build {
     SCNScene *scene = [SCNScene scene];
-    // depth: fog fades distance into the horizon (good first-person cue)
-    scene.fogColor = [NSColor colorWithSRGBRed:0.05 green:0.07 blue:0.10 alpha:1];
-    scene.fogStartDistance = 18; scene.fogEndDistance = 95;
+    // sky dome — a gradient backdrop with a horizon, so it reads as a world (not a
+    // black void) whichever way the fly looks
+    SCNSphere *sky = [SCNSphere sphereWithRadius:150];
+    sky.firstMaterial.cullMode = SCNCullModeFront;          // visible from inside
+    sky.firstMaterial.lightingModelName = SCNLightingModelConstant;
+    sky.firstMaterial.diffuse.contents = [self _skyImage];
+    [scene.rootNode addChildNode:[SCNNode nodeWithGeometry:sky]];
 
     // ground grid
     SCNFloor *floor = [SCNFloor floor];
@@ -116,13 +133,13 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     [scene.rootNode addChildNode:[SCNNode nodeWithGeometry:floor]];
 
     // scattered glowing landmark pillars — depth + motion reference as you fly
-    for (int i = 0; i < 14; i++) {
-        CGFloat px = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*0.95;
-        CGFloat pz = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*0.95;
-        CGFloat h  = 6 + arc4random_uniform(14);
-        SCNCylinder *cyl = [SCNCylinder cylinderWithRadius:0.25 height:h];
-        cyl.firstMaterial.diffuse.contents  = [NSColor colorWithSRGBRed:0.10 green:0.30 blue:0.45 alpha:1];
-        cyl.firstMaterial.emission.contents = [NSColor colorWithSRGBRed:0.10 green:0.35 blue:0.55 alpha:1];
+    for (int i = 0; i < 26; i++) {
+        CGFloat px = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
+        CGFloat pz = ((double)arc4random_uniform(1000)/1000.0*2-1) * WORLD*1.05;
+        CGFloat h  = 8 + arc4random_uniform(18);
+        SCNCylinder *cyl = [SCNCylinder cylinderWithRadius:0.3 height:h];
+        cyl.firstMaterial.diffuse.contents  = [NSColor colorWithSRGBRed:0.12 green:0.34 blue:0.50 alpha:1];
+        cyl.firstMaterial.emission.contents = [NSColor colorWithSRGBRed:0.12 green:0.40 blue:0.62 alpha:1];
         SCNNode *pn = [SCNNode nodeWithGeometry:cyl];
         pn.position = V3(px, h/2, pz);
         [scene.rootNode addChildNode:pn];
@@ -142,7 +159,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     odor.emitterShape = [SCNSphere sphereWithRadius:0.8];
     [_foodNode addParticleSystem:odor];
     // soft halo so the food is a visible beacon across the arena
-    SCNSphere *halo = [SCNSphere sphereWithRadius:2.0];
+    SCNSphere *halo = [SCNSphere sphereWithRadius:3.4];
     halo.firstMaterial.emission.contents = [NSColor colorWithSRGBRed:1 green:0.68 blue:0.28 alpha:1];
     halo.firstMaterial.transparency = 0.22;
     halo.firstMaterial.writesToDepthBuffer = NO;
@@ -195,11 +212,6 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     _scn.rendersContinuously = NO;
     [self addSubview:_scn];
 
-    // cockpit framing (over the scene, under the overlays)
-    _cockpit = [[FlightCockpit alloc] initWithFrame:self.bounds];
-    _cockpit.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [self addSubview:_cockpit];
-
     // minimap — a second view of the SAME scene from the external camera, inset
     // top-right with a border (the old third-person view, as a 3D map)
     CGFloat mw = 230, mh = 158;
@@ -227,6 +239,17 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     _hud.autoresizingMask = NSViewMaxXMargin | NSViewMinYMargin;
     _hud.maximumNumberOfLines = 4;
     [self addSubview:_hud];
+
+    // attitude indicator (gyroscope) — fixed bottom-left
+    _gyro = [[FlightGyro alloc] initWithFrame:NSMakeRect(16, 16, 124, 124)];
+    _gyro.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+    [self addSubview:_gyro];
+    NSTextField *gl = [NSTextField labelWithString:@"ATTITUDE"];
+    gl.font = [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightSemibold];
+    gl.textColor = [NSColor colorWithSRGBRed:0.4 green:1 blue:0.7 alpha:0.85];
+    gl.frame = NSMakeRect(16, 142, 124, 12); gl.alignment = NSTextAlignmentCenter;
+    gl.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+    [self addSubview:gl];
 }
 
 - (void)setActive:(BOOL)active {
@@ -246,11 +269,22 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     [g drawInRect:NSMakeRect(0,0,S,S) relativeCenterPosition:NSZeroPoint];
     [img unlockFocus]; return img;
 }
+- (NSImage *)_skyImage {
+    NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(8,256)];
+    [img lockFocus];
+    NSGradient *g = [[NSGradient alloc] initWithColorsAndLocations:
+        [NSColor colorWithSRGBRed:0.05 green:0.07 blue:0.13 alpha:1], 0.0,    // floor side
+        [NSColor colorWithSRGBRed:0.13 green:0.26 blue:0.36 alpha:1], 0.5,    // horizon glow
+        [NSColor colorWithSRGBRed:0.02 green:0.03 blue:0.08 alpha:1], 1.0,    // zenith
+        nil];
+    [g drawInRect:NSMakeRect(0,0,8,256) angle:90];
+    [img unlockFocus]; return img;
+}
 - (NSImage *)_gridImage {
     CGFloat S = 256; NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(S,S)];
     [img lockFocus];
-    [[NSColor colorWithSRGBRed:0.05 green:0.06 blue:0.08 alpha:1] setFill]; NSRectFill(NSMakeRect(0,0,S,S));
-    [[NSColor colorWithSRGBRed:0.12 green:0.20 blue:0.18 alpha:1] setStroke];
+    [[NSColor colorWithSRGBRed:0.06 green:0.08 blue:0.10 alpha:1] setFill]; NSRectFill(NSMakeRect(0,0,S,S));
+    [[NSColor colorWithSRGBRed:0.20 green:0.34 blue:0.30 alpha:1] setStroke];
     NSBezierPath *p = [NSBezierPath bezierPath]; p.lineWidth = 3;
     [p moveToPoint:NSMakePoint(1,0)]; [p lineToPoint:NSMakePoint(1,S)];
     [p moveToPoint:NSMakePoint(0,1)]; [p lineToPoint:NSMakePoint(S,1)];
@@ -300,9 +334,10 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     _fly.lightRightHz = (float)(visible ? MAXVIS*rfrac       : 0);
     if (visible) { _fly.smellLeftHz = 0; _fly.smellRightHz = 0; }   // vision-only when fixating
 
-    // READ descending command
+    // READ the brain's steering command — the DNa turn-descending family (L−R),
+    // far cleaner than averaging all 1,303 descending cells.
     FlySnapshot s = [_fly snapshot];
-    double asym = s.dnLeftRate - s.dnRightRate;
+    double asym = s.steerLeftRate - s.steerRightRate;
     if (_calib == 0) { _baseline = asym; _calib = 1; }
 
     if (visible) {
@@ -312,7 +347,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         double yawRate = turn * YAW_GAIN;
         if (yawRate >  YAW_MAX) yawRate =  YAW_MAX;
         if (yawRate < -YAW_MAX) yawRate = -YAW_MAX;
-        _yaw += yawRate * dt;
+        _yaw -= yawRate * dt;                 // DNa polarity: food-right → bank right
         double pitchT = atan2(_foodPos.y - _pos.y, th);
         if (pitchT >  0.7) pitchT =  0.7; if (pitchT < -0.7) pitchT = -0.7;
         _pitch += (pitchT - _pitch) * 0.10;
@@ -345,14 +380,19 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     static int hk = 0; if ((hk++ % 6) == 0) {
         NSString *txt = [NSString stringWithFormat:
             @"FIRST-PERSON FLIGHT — what the fly sees, steered by its brain\n"
-            @"descending  L %5.1f  R %5.1f   (L−R %+5.1f Hz → yaw)\n"
+            @"DNa steering  L %5.1f  R %5.1f   (L−R %+5.1f Hz → yaw)\n"
             @"eyes  L %3.0f%%  R %3.0f%%   ·   smell %3.0f%%   ·   caught: %d\n"
             @"%@",
-            s.dnLeftRate, s.dnRightRate, (s.dnLeftRate - s.dnRightRate),
+            s.steerLeftRate, s.steerRightRate, (s.steerLeftRate - s.steerRightRate),
             _fly.lightLeftHz/MAXVIS*100, _fly.lightRightHz/MAXVIS*100, odorHead*100, _caught,
             visible ? @"vision: fixating the food → descending → turn toward it"
                     : @"food out of view — casting to find it"];
         dispatch_async(dispatch_get_main_queue(), ^{ self->_hud.stringValue = txt; });
+    }
+    if ((hk % 2) == 0) {                          // attitude indicator, ~30 Hz
+        CGFloat yy = _yaw, pp = _pitch;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self->_gyro.yaw = yy; self->_gyro.pitch = pp; [self->_gyro setNeedsDisplay:YES]; });
     }
 }
 @end

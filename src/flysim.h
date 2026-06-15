@@ -52,6 +52,8 @@ int  flysim_eventdriven(const FlySim*);
 // ---- set resolution --------------------------------------------------------
 // Resolve a named cell type / modality / superclass to a row set. side: -1=both.
 FlySet  flysim_set_by_celltype(FlySim*, const char* cell_type);
+// cell_types beginning with `prefix` (e.g. "DNa"), optionally one side (-1=both).
+FlySet  flysim_set_by_celltype_prefix(FlySim*, const char* prefix, int side);
 FlySet  flysim_set_by_modality(FlySim*, FlyModality, int side);
 FlySet  flysim_set_by_superclass(FlySim*, uint8_t super_enum, int side);
 uint32_t flysim_set_size(const FlySim*, FlySet);

@@ -31,6 +31,8 @@ typedef struct {
     float    dnRate;         // descending neurons (brain → body command lines)
     float    dnLeftRate;     // left  descending (3D flight: steering)
     float    dnRightRate;    // right descending
+    float    steerLeftRate;  // left  DNa steering family (clean turn command)
+    float    steerRightRate; // right DNa steering family
     uint32_t lastSpikes;     // spikes in the most recent step
     double   simTime;        // accumulated biological seconds
     double   stepsPerSec;    // measured sim throughput

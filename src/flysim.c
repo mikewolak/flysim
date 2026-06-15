@@ -286,6 +286,11 @@ static int pred_celltype(const FlySim* s, uint32_t j, int64_t name_ptr) {
     const char* have = s->strtab + s->celltype[j];
     return strcmp(have, want) == 0;
 }
+static int pred_celltype_prefix(const FlySim* s, uint32_t j, int64_t pfx_ptr) {
+    const char* pfx  = (const char*)(intptr_t)pfx_ptr;
+    const char* have = s->strtab + s->celltype[j];
+    return strncmp(have, pfx, strlen(pfx)) == 0;
+}
 
 FlySet flysim_set_by_modality(FlySim* s, FlyModality m, int side) {
     return collect(s, pred_modality, (int64_t)m, side);
@@ -295,6 +300,11 @@ FlySet flysim_set_by_superclass(FlySim* s, uint8_t sc, int side) {
 }
 FlySet flysim_set_by_celltype(FlySim* s, const char* cell_type) {
     return collect(s, pred_celltype, (int64_t)(intptr_t)cell_type, -1);
+}
+// cell_types beginning with `prefix` (e.g. "DNa" → the DNa steering family),
+// optionally restricted to one body side. Powers brain-steered flight.
+FlySet flysim_set_by_celltype_prefix(FlySim* s, const char* prefix, int side) {
+    return collect(s, pred_celltype_prefix, (int64_t)(intptr_t)prefix, side);
 }
 
 uint32_t flysim_set_size(const FlySim* s, FlySet set) {

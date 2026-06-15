@@ -17,6 +17,7 @@
     FlySet _smell, _touch, _heat, _humid, _light;   // the rest of the senses
     FlySet _motor, _dn;                              // motor + descending outputs
     FlySet _smellL, _smellR, _lightL, _lightR, _dnL, _dnR;   // bilateral (3D flight)
+    FlySet _steerL, _steerR;                                 // DNa steering DNs L/R
 
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
@@ -77,6 +78,10 @@
     _lightR = flysim_set_by_modality(_sim, MOD_VISUAL, SIDE_RIGHT);  // right eye
     _dnL    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_LEFT);
     _dnR    = flysim_set_by_superclass(_sim, SC_DESCENDING, SIDE_RIGHT);
+    // the DNa steering family (DNa01..08) split by side — the actual turn-command
+    // descending neurons, far cleaner than averaging all 1,303 descending cells.
+    _steerL = flysim_set_by_celltype_prefix(_sim, "DNa", SIDE_LEFT);
+    _steerR = flysim_set_by_celltype_prefix(_sim, "DNa", SIDE_RIGHT);
 }
 
 // apply every UI sensory clamp to the model (called each sim chunk + on step)
@@ -264,6 +269,8 @@ static int FSSuperclassForName(NSString *n) {
     s.dnRate     = flysim_set_rate(_sim, _dn);
     s.dnLeftRate = flysim_set_rate(_sim, _dnL);
     s.dnRightRate= flysim_set_rate(_sim, _dnR);
+    s.steerLeftRate = flysim_set_rate(_sim, _steerL);
+    s.steerRightRate= flysim_set_rate(_sim, _steerR);
     s.lastSpikes = flysim_last_spike_count(_sim);
     s.simTime    = flysim_sim_time(_sim);
 
