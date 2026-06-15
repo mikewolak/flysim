@@ -36,7 +36,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 // a gyroscope / attitude indicator: artificial-horizon ball (pitch) inside a
 // rotating compass ring (yaw), with a fixed fly symbol — shows the fly's attitude.
 @interface FlightGyro : NSView
-@property (nonatomic) CGFloat yaw, pitch;
+@property (nonatomic) CGFloat yaw, pitch, roll;
 @end
 @implementation FlightGyro
 - (BOOL)isFlipped { return NO; }
@@ -49,16 +49,19 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     CGFloat R = MIN(cx,cy) - 4;
     NSBezierPath *circ = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx-R,cy-R,2*R,2*R)];
     [NSGraphicsContext saveGraphicsState]; [circ addClip];
-    // artificial horizon — pitch shifts it vertically (nose up → more sky)
+    // roll tilts the whole horizon; pitch shifts it vertically (nose up → more sky)
+    NSAffineTransform *rot = [NSAffineTransform transform];
+    [rot translateXBy:cx yBy:cy]; [rot rotateByDegrees:_roll*180.0/M_PI];
+    [rot translateXBy:-cx yBy:-cy]; [rot concat];
     CGFloat off = (_pitch/0.9)*R; if (off>R) off=R; if (off<-R) off=-R;
-    CGFloat hy = cy - off;
-    [[NSColor colorWithSRGBRed:0.16 green:0.40 blue:0.58 alpha:1] setFill];
-    NSRectFill(NSMakeRect(cx-R, hy, 2*R, (cy+R)-hy));
-    [[NSColor colorWithSRGBRed:0.34 green:0.23 blue:0.12 alpha:1] setFill];
-    NSRectFill(NSMakeRect(cx-R, cy-R, 2*R, hy-(cy-R)));
+    CGFloat hy = cy - off, big = R*2.4;
+    [[NSColor colorWithSRGBRed:0.16 green:0.40 blue:0.58 alpha:1] setFill];   // sky
+    NSRectFill(NSMakeRect(cx-big, hy, 2*big, 2*big));
+    [[NSColor colorWithSRGBRed:0.34 green:0.23 blue:0.12 alpha:1] setFill];   // ground
+    NSRectFill(NSMakeRect(cx-big, hy-2*big, 2*big, 2*big));
     [[NSColor whiteColor] setStroke];
     NSBezierPath *hl = [NSBezierPath bezierPath];
-    [hl moveToPoint:NSMakePoint(cx-R,hy)]; [hl lineToPoint:NSMakePoint(cx+R,hy)];
+    [hl moveToPoint:NSMakePoint(cx-big,hy)]; [hl lineToPoint:NSMakePoint(cx+big,hy)];
     hl.lineWidth = 1.5; [hl stroke];
     [[NSColor colorWithWhite:1 alpha:0.55] setStroke];      // pitch ladder
     for (int k=-3;k<=3;k++){ if(!k) continue; CGFloat py=hy+(k*0.26/0.9)*R, w=(k%2)?R*0.20:R*0.40;
@@ -140,7 +143,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 @implementation FlightView {
     FlyController *_fly;
     SCNView   *_scn;
-    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode;
+    SCNNode   *_flyNode, *_foodNode, *_camNode, *_lookNode, *_camRig;
     NSTextField *_hud;
     FlightGyro *_gyro;
     FlightMap *_map;
@@ -148,7 +151,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     BOOL _active;
 
     SCNVector3 _pos, _foodPos;
-    double _yaw, _pitch, _lastT, _castPhase;
+    double _yaw, _pitch, _roll, _lastT, _castPhase;
     int    _caught, _calib;
     double _baseline;
 }
@@ -236,13 +239,17 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     amb.light.type = SCNLightTypeAmbient; amb.light.color = [NSColor colorWithWhite:0.45 alpha:1];
     [scene.rootNode addChildNode:amb];
 
-    // first-person camera: rides the fly's eye, wide fly-like field of view
-    _camNode = [SCNNode node]; _camNode.camera = [SCNCamera camera];
-    _camNode.camera.fieldOfView = 95; _camNode.camera.zFar = 300; _camNode.camera.zNear = 0.3;
+    // first-person camera on a gimbal rig: the rig points along the heading
+    // (look-at), the camera child is rolled about the view axis so the world
+    // horizon banks into turns. Wide fly-like field of view.
+    _camRig = [SCNNode node];
     _lookNode = [SCNNode node];
     [scene.rootNode addChildNode:_lookNode];
-    [scene.rootNode addChildNode:_camNode];
-    _camNode.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode]];
+    [scene.rootNode addChildNode:_camRig];
+    _camRig.constraints = @[[SCNLookAtConstraint lookAtConstraintWithTarget:_lookNode]];
+    _camNode = [SCNNode node]; _camNode.camera = [SCNCamera camera];
+    _camNode.camera.fieldOfView = 95; _camNode.camera.zFar = 300; _camNode.camera.zNear = 0.3;
+    [_camRig addChildNode:_camNode];
 
     _scn = [[SCNView alloc] initWithFrame:self.bounds];
     _scn.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -346,6 +353,7 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
 - (void)renderer:(id<SCNSceneRenderer>)r updateAtTime:(NSTimeInterval)t {
     double dt = (_lastT > 0) ? (t - _lastT) : (1.0/60.0);
     _lastT = t; if (dt <= 0 || dt > 0.1) dt = 1.0/60.0;
+    double yaw0 = _yaw;                       // to derive bank (roll) from turn rate
 
     double cy = cos(_yaw), sy = sin(_yaw), cp = cos(_pitch), sp = sin(_pitch);
     SCNVector3 fwd = V3(sy*cp, sp, cy*cp), right = V3(cy, 0, -sy);
@@ -401,6 +409,12 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         _yaw += d * 1.5 * dt;
     }
 
+    // bank (roll) into the turn — a coordinated turn, and it tilts the horizon
+    double dyaw = _yaw - yaw0;
+    while (dyaw > M_PI) dyaw -= 2*M_PI; while (dyaw < -M_PI) dyaw += 2*M_PI;
+    double rollT = (dyaw/dt) * 0.34; if (rollT > 0.7) rollT = 0.7; if (rollT < -0.7) rollT = -0.7;
+    _roll += (rollT - _roll) * 0.08;
+
     double speed = CRUISE * (1.0 - 0.72*odorHead);
     cy = cos(_yaw); sy = sin(_yaw); cp = cos(_pitch); sp = sin(_pitch);
     fwd = V3(sy*cp, sp, cy*cp);
@@ -409,10 +423,11 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
     if (_pos.y > ALT_MAX) { _pos.y = ALT_MAX; if (_pitch > 0) _pitch = 0; }
     _flyNode.position = _pos;
 
-    // FIRST-PERSON camera: at the eye (led ahead of the body so the fly itself
-    // stays out of frame here but still shows on the map), looking along heading
-    _camNode.position  = V3(_pos.x + fwd.x*1.8, _pos.y + 0.12, _pos.z + fwd.z*1.8);
+    // FIRST-PERSON camera on the gimbal rig: rig at the eye (led ahead so the fly
+    // stays out of frame), looking along heading; camera rolled to bank the view
+    _camRig.position   = V3(_pos.x + fwd.x*1.8, _pos.y + 0.12, _pos.z + fwd.z*1.8);
     _lookNode.position = V3(_pos.x + fwd.x*20,  _pos.y + fwd.y*20, _pos.z + fwd.z*20);
+    _camNode.eulerAngles = V3(0, 0, _roll);
 
     if (vdist(_pos, _foodPos) < CATCH) { _caught++; [self _placeFood]; _calib = 0; }
 
@@ -429,10 +444,11 @@ static CGFloat vdist(SCNVector3 a, SCNVector3 b){
         dispatch_async(dispatch_get_main_queue(), ^{ self->_hud.stringValue = txt; });
     }
     if ((hk % 2) == 0) {                          // attitude indicator + map, ~30 Hz
-        CGFloat yy = _yaw, pp = _pitch;
+        CGFloat yy = _yaw, pp = _pitch, rr = _roll;
         CGPoint flyXZ = CGPointMake(_pos.x, _pos.z), foodXZ = CGPointMake(_foodPos.x, _foodPos.z);
         dispatch_async(dispatch_get_main_queue(), ^{
-            self->_gyro.yaw = yy; self->_gyro.pitch = pp; [self->_gyro setNeedsDisplay:YES];
+            self->_gyro.yaw = yy; self->_gyro.pitch = pp; self->_gyro.roll = rr;
+            [self->_gyro setNeedsDisplay:YES];
             self->_map.flyXZ = flyXZ; self->_map.foodXZ = foodXZ; self->_map.flyYaw = yy;
             [self->_map setNeedsDisplay:YES]; });
     }
