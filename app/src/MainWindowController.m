@@ -6,7 +6,7 @@
 #import "FlyController.h"
 #import "FSWidgets.h"
 #import "FSControlServer.h"
-#import "FlightWindowController.h"
+#import "FlightView.h"
 
 // proboscis mapping (§8.1): MN9 firing rate (Hz) → extension fraction. Tuned so
 // a real sugar response (MN9 ~40–55 Hz on the FlyWire brain) drives a full,
@@ -62,7 +62,8 @@
     NSButton *_mcpEnable;
     NSTextField *_portField, *_mcpStatus;
 
-    FlightWindowController *_flightWC;   // 3D brain-steered flight window
+    FlightView *_flightView;             // 3D first-person flight tab
+    NSSegmentedControl *_tabSeg;         // Brain | Flight tab switcher
 }
 
 - (instancetype)init {
@@ -164,6 +165,13 @@
     [root addSubview:_settingsPanel];
     [self _fillSettingsPanel:_settingsPanel];
 
+    // ---- 3D first-person flight view (the Flight tab; hidden by default) --
+    _flightView = [[FlightView alloc] initWithFly:_fly frame:
+        NSMakeRect(pad, top, W - 2*pad, H - top - pad)];
+    _flightView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _flightView.hidden = YES;
+    [root addSubview:_flightView];
+
     // ---- UI sampler (60 Hz default, up to 120 Hz) -------------------------
     _sampleHz = 60.0;
     [self _installTimer];
@@ -183,7 +191,7 @@
         _foodBtn.isOn = YES; [self _foodToggled:nil];   // place food → smell → walk → feed
     }
     if (getenv("FLYSIM_SHOW_SETTINGS")) [self _toggleSettings:nil];
-    if (_fly && getenv("FLYSIM_FLIGHT")) [self _open3DFlight:nil];
+    if (getenv("FLYSIM_FLIGHT")) { _tabSeg.selectedSegment = 1; [self _tabChanged:nil]; }
 }
 
 - (NSView *)_transportBarWithWidth:(CGFloat)W {
@@ -228,10 +236,14 @@
     _speedSel.toolTip = @"Sim speed cap (1× = real time @ 1ms tick; MAX = unthrottled)";
     [bar addSubview:_speedSel];
 
-    NSButton *flight3d = [self _chromeButton:@"✈ 3D FLIGHT" action:@selector(_open3DFlight:)];
-    flight3d.frame = NSMakeRect(756, 18, 124, 30);
-    flight3d.toolTip = @"3D world: the fly flies to food, steered by its descending neurons";
-    [bar addSubview:flight3d];
+    _tabSeg = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(742, 18, 152, 30)];
+    _tabSeg.segmentCount = 2;
+    [_tabSeg setLabel:@"🧠 Brain" forSegment:0];
+    [_tabSeg setLabel:@"✈ Flight" forSegment:1];
+    _tabSeg.selectedSegment = 0;
+    _tabSeg.target = self; _tabSeg.action = @selector(_tabChanged:);
+    _tabSeg.toolTip = @"Brain view (2D) ↔ first-person 3D flight (what the fly sees)";
+    [bar addSubview:_tabSeg];
 
     _settingsBtn = [self _chromeButton:@"⚙ SETTINGS" action:@selector(_toggleSettings:)];
     _settingsBtn.frame = NSMakeRect(W-126, 18, 110, 30);
@@ -407,11 +419,14 @@
     [_activity clearHistory];
     _proboscisAngle = 0;
 }
-- (void)_open3DFlight:(id)s {
-    if (!_fly) return;
-    if (!_flightWC) _flightWC = [[FlightWindowController alloc] initWithFly:_fly];
-    [_flightWC showWindow:nil];
-    [_flightWC.window makeKeyAndOrderFront:nil];
+- (void)_tabChanged:(id)s {
+    BOOL flight = (_tabSeg.selectedSegment == 1);
+    if (!_settingsPanel.hidden) {            // leave Settings if it was open
+        _settingsPanel.hidden = YES; _settingsBtn.title = @"⚙ SETTINGS";
+    }
+    _stimPanel.hidden = _brainPanel.hidden = _outPanel.hidden = flight;
+    _flightView.hidden = !flight;
+    [_flightView setActive:flight];
 }
 - (void)_backendChanged:(NSSegmentedControl *)seg {
     if (!_fly) return;
@@ -542,11 +557,18 @@
 #pragma mark - Settings tab
 
 - (void)_toggleSettings:(id)s {
-    BOOL show = _settingsPanel.hidden;
+    BOOL show = _settingsPanel.hidden;            // about to show settings?
     _settingsPanel.hidden = !show;
-    _stimPanel.hidden = _brainPanel.hidden = _outPanel.hidden = show;
+    if (show) {                                  // opening: hide everything else
+        _stimPanel.hidden = _brainPanel.hidden = _outPanel.hidden = YES;
+        _flightView.hidden = YES; [_flightView setActive:NO];
+        [self _refreshMCPStatus];
+    } else {                                     // closing: restore the active tab
+        BOOL flight = (_tabSeg.selectedSegment == 1);
+        _stimPanel.hidden = _brainPanel.hidden = _outPanel.hidden = flight;
+        _flightView.hidden = !flight; [_flightView setActive:flight];
+    }
     _settingsBtn.title = show ? @"⚙ CLOSE" : @"⚙ SETTINGS";
-    if (show) [self _refreshMCPStatus];
 }
 
 - (void)_fillSettingsPanel:(FSPanel *)p {

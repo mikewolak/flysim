@@ -22,7 +22,7 @@ LDFLAGS = -framework Cocoa -framework QuartzCore -framework Metal -framework Fou
 SRC_C = $(CORE_DIR)/flysim.c
 SRC_M = src/main.m src/AppDelegate.m src/MainWindowController.m \
         src/FlyController.m src/FSWidgets.m src/FSControlServer.m \
-        src/FlightWindowController.m
+        src/FlightView.m
 
 OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(notdir $(SRC_C))) \
        $(OBJ_DIR)/flysim_metal.o \
