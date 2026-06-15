@@ -71,6 +71,8 @@ void    flysim_run(FlySim*, float dt, int k);    // k steps, amortized
 // ---- readout (output) ------------------------------------------------------
 float        flysim_rate(const FlySim*, uint32_t row);   // smoothed Hz, one neuron
 float        flysim_set_rate(const FlySim*, FlySet);     // mean Hz over a set
+// Distribution of a set across `nbins` row-bins (peak-normalised); returns peak bin.
+int          flysim_set_bins(const FlySim*, FlySet, int nbins, float* out);
 const float* flysim_rate_buffer(const FlySim*, uint32_t* count_out);
 const uint8_t* flysim_spike_buffer(const FlySim*, uint32_t* count_out);
 

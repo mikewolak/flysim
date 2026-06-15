@@ -122,10 +122,24 @@ def main():
     mn9_rows = [r for r,sc in motor_score[:12] if sc > 0] or list(motor_rows[:12])
     print(f"  MN9 set = {len(mn9_rows)} motor neurons (top sugar-driven)", flush=True)
 
-    # build strtab: unique cell types + "MN9"
+    # ---- feeding interneurons: the hop-1 premotor stage — neurons excited by
+    #      sugar GRNs that in turn drive MN9. These ARE the feeding command
+    #      interneurons; bitter GRNs inhibit this stage (the taste veto). ----
+    mn9_set = np.zeros(N, bool); mn9_set[mn9_rows] = True
+    proj_mn9 = np.zeros(N, np.float64)            # excitatory weight each row sends INTO MN9
+    selp = exc & mn9_set[post_row]
+    np.add.at(proj_mn9, pre_row[selp], weights[selp])
+    fi_score = m1 * proj_mn9                      # excited by sugar  ×  drives MN9
+    fi_score[mn9_set] = 0                         # MN9 are motor, not interneurons
+    fi_score[sset]    = 0                         # sugar GRNs are sensory, not interneurons
+    fi_rows = [int(r) for r in np.argsort(-fi_score)[:40] if fi_score[r] > 0]
+    print(f"  feeding interneurons = {len(fi_rows)} (sugar-driven, premotor to MN9)", flush=True)
+
+    # build strtab: unique cell types + computed "MN9" / "feeding_interneuron"
     ct_for_row = np.array(["",]*N, dtype=object)
     ct_for_row[ann_row] = raw_ct
-    for r in mn9_rows: ct_for_row[r] = "MN9"
+    for r in fi_rows: ct_for_row[r] = "feeding_interneuron"
+    for r in mn9_rows: ct_for_row[r] = "MN9"      # MN9 wins any overlap
     strtab = bytearray(b"\x00")           # offset 0 == ""
     off_of = {"":0}
     for r in range(N):
@@ -174,7 +188,7 @@ def main():
           f"touch={int((modd==MOD_MECHANO).sum())} heat={int((modd==MOD_THERMO).sum())} "
           f"humidity={int((modd==MOD_HYGRO).sum())} light={int((modd==MOD_VISUAL).sum())}", flush=True)
     print(f"  motor={int((sup==SC['motor']).sum())} descending={int((sup==SC['descending']).sum())} "
-          f"MN9={len(mn9_rows)}", flush=True)
+          f"MN9={len(mn9_rows)} feeding_interneuron={len(fi_rows)}", flush=True)
 
 if __name__ == "__main__":
     main()

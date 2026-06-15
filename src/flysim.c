@@ -523,6 +523,24 @@ const float* flysim_rate_buffer(const FlySim* s, uint32_t* count_out) {
     return s->rate;
 }
 
+// Where a set's neurons sit across the heat-strip's `nbins` row-bins.
+// out[b] = fraction of the set in bin b, peak-normalised to 1. Returns the peak
+// bin (or -1 if empty) — lets the UI mark which heatmap rows a sense occupies.
+int flysim_set_bins(const FlySim* s, FlySet set, int nbins, float* out) {
+    for (int b = 0; b < nbins; ++b) out[b] = 0.0f;
+    if (set >= s->set_count || s->sets[set].count == 0 || nbins <= 0) return -1;
+    const uint32_t* rows = s->sets[set].rows;
+    uint32_t cnt = s->sets[set].count;
+    for (uint32_t i = 0; i < cnt; ++i) {
+        int b = (int)((uint64_t)rows[i] * (uint64_t)nbins / s->N);
+        if (b >= 0 && b < nbins) out[b] += 1.0f;
+    }
+    float mx = 0.0f; int peak = 0;
+    for (int b = 0; b < nbins; ++b) if (out[b] > mx) { mx = out[b]; peak = b; }
+    if (mx > 0.0f) for (int b = 0; b < nbins; ++b) out[b] /= mx;
+    return peak;
+}
+
 const uint8_t* flysim_spike_buffer(const FlySim* s, uint32_t* count_out) {
     if (count_out) *count_out = s->N;
     return s->spike_prev;   // last completed step lives in spike_prev after swap

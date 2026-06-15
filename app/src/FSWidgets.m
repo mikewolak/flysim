@@ -196,7 +196,9 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
     float  *_hist;     // _cols * _rows, column-major ring
     int     _head;     // next column to write
     uint8_t *_rgba;    // _cols * _rows * 4 scratch
+    NSArray<NSDictionary *> *_marks;   // per-sense row markers
 }
+- (void)setSenseMarks:(NSArray<NSDictionary *> *)marks { _marks = marks; }
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)f {
     if ((self = [super initWithFrame:f])) {
@@ -255,6 +257,37 @@ static void heat(float t, uint8_t *r, uint8_t *g, uint8_t *b) {
 
     CGImageRelease(img); CGContextRelease(bmp); CGColorSpaceRelease(cs);
 
+    // ---- per-sense row markers: a colored wedge + tag on the left gutter at the
+    //      heat-bin where that sense's neurons sit; it glows when the sense fires,
+    //      so you can see exactly which rows of the brain light up. ------------
+    for (NSDictionary *m in _marks) {
+        CGFloat f = [m[@"y"] doubleValue];                 // 0..1, bin 0 at bottom
+        CGFloat glow = [m[@"glow"] doubleValue];
+        NSColor *c = m[@"color"];
+        CGFloat y = b.size.height * (1.0 - f);             // flipped: y down from top
+        BOOL active = glow > 0.15;
+        // wedge tab on the left gutter — bright when the sense is firing
+        NSBezierPath *wedge = [NSBezierPath bezierPath];
+        [wedge moveToPoint:CGPointMake(0, y-5)];
+        [wedge lineToPoint:CGPointMake(10 + 8*glow, y)];
+        [wedge lineToPoint:CGPointMake(0, y+5)];
+        [wedge closePath];
+        [[c colorWithAlphaComponent:0.35 + 0.65*glow] setFill]; [wedge fill];
+        if (active) {                                      // full-width band + label chip
+            [[c colorWithAlphaComponent:0.22 + 0.45*glow] setStroke];
+            NSBezierPath *ln = [NSBezierPath bezierPath];
+            [ln moveToPoint:CGPointMake(0,y)]; [ln lineToPoint:CGPointMake(b.size.width,y)];
+            ln.lineWidth = 1.5; [ln stroke];
+            NSString *lbl = m[@"label"];
+            NSDictionary *attr = @{ NSFontAttributeName:[FSStyle mono:10 weight:NSFontWeightHeavy],
+                                    NSForegroundColorAttributeName:c,
+                                    NSStrokeColorAttributeName:[NSColor colorWithWhite:0 alpha:0.9],
+                                    NSStrokeWidthAttributeName:@(-4.0) };   // dark outline for contrast
+            NSSize ls = [lbl sizeWithAttributes:attr];
+            [lbl drawAtPoint:CGPointMake(22, y - ls.height/2) withAttributes:attr];
+        }
+    }
+
     // subtle scanline frame
     [[FSStyle panelStroke] setStroke];
     NSBezierPath *fr = [NSBezierPath bezierPathWithRect:NSInsetRect(b,0.5,0.5)];
@@ -312,6 +345,23 @@ static NSBezierPath *hexAt(CGPoint c, CGFloat r) {
     BOOL    _dragFood; // mouse is dragging the droplet
     CGFloat _lastOdor; // previous perceived odor (for klinotaxis: warmer/colder)
     BOOL    _onFood;   // latched once it reaches the drop (hysteresis, so it stays)
+    CGFloat _veto, _touchR, _heatR, _lightR, _humidR;  // smoothed reaction levels 0..1
+    CGFloat _startle;   // brief decaying touch-startle impulse (habituates when held)
+    CGFloat _touchPrev; // for rising-edge detection
+    double  _wingPh;   // wing-buzz phase, sped up by the light reaction
+}
+- (void)setReactBitterVeto:(CGFloat)veto touch:(CGFloat)touch
+                      heat:(CGFloat)heat light:(CGFloat)light humid:(CGFloat)humid {
+    #define FSCL(v) ((v)<0?0:((v)>1?1:(v)))
+    CGFloat t = FSCL(touch);
+    if (t > _touchPrev + 0.12) _startle = 1.0;     // a fresh touch → one startle jolt
+    _touchPrev += (t - _touchPrev) * 0.15;          // slow track so a held touch habituates
+    _veto   += (FSCL(veto)  - _veto)   * 0.25;
+    _touchR += (t           - _touchR) * 0.30;
+    _heatR  += (FSCL(heat)  - _heatR)  * 0.20;
+    _lightR += (FSCL(light) - _lightR) * 0.30;
+    _humidR += (FSCL(humid) - _humidR) * 0.20;
+    #undef FSCL
 }
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)f {
@@ -375,6 +425,8 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
 - (void)setExtension:(CGFloat)e {
     _extension = e < 0 ? 0 : (e > 1 ? 1 : e);
     _phase += 1.0;
+    _wingPh += 0.8 + 4.2*_lightR;          // light reaction → faster wing buzz
+    _startle *= 0.86;                       // startle jolt decays (habituates)
     NSRect bb = self.bounds; CGFloat W = bb.size.width, H = bb.size.height;
     CGFloat drive = _smellDrive < 0 ? 0 : (_smellDrive > 1 ? 1 : _smellDrive);
 
@@ -437,6 +489,7 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
     FlyPose p; memset(&p, 0, sizeof p);
     CGFloat W = b.size.width, H = b.size.height;
     CGFloat e = _walking ? 0.0 : _extension;           // tongue stays in while striding
+    e *= (1.0 - 0.92*_veto);                           // bitter veto retracts the proboscis
     e = e*e*(3.0 - 2.0*e);                             // smoothstep ease
     p.W = W; p.H = H; p.ground = H*0.80;
     CGFloat dx = _bodyX;                       // the fly's walk offset
@@ -447,6 +500,16 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
     p.headC   = CGPointMake(BodyHomeHeadX(W) + dx, H*0.44); p.headR = H*0.125;
     p.eyeC    = CGPointMake(W*0.525 + dx, H*0.415); p.eyeR = H*0.082;
     p.antBase = CGPointMake(p.headC.x + p.headR*0.55, p.headC.y - p.headR*0.55);
+
+    // live reactions displace the whole body: touch → startle bob, heat → recoil
+    // (rears back and up). Applied before the proboscis so the tongue follows.
+    CGFloat bob  = _startle * H*0.028 * sin(_phase*0.9);  // brief startle jolt, then settles
+    CGFloat lean = _heatR  * H*0.030;                     // gentle heat recoil
+    CGFloat sdx  = -_facing*lean;                 // shrink away from the heat
+    CGFloat sdy  = -lean*0.5 + bob;               // flipped view: −y = up (rear up)
+    p.abdC.x+=sdx; p.abdC.y+=sdy; p.thoraxC.x+=sdx; p.thoraxC.y+=sdy;
+    p.headC.x+=sdx; p.headC.y+=sdy; p.eyeC.x+=sdx; p.eyeC.y+=sdy;
+    p.antBase.x+=sdx; p.antBase.y+=sdy;
 
     // proboscis ("tongue"): from the head's ventral-front down to the food.
     // At rest it's tucked short under the head; MN9 firing swings it straight
@@ -521,9 +584,15 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
         }
         return CGPointMake(fx, fy);
     };
-    // a translucent veined wing as a curved blade swept back over the abdomen
-    void (^drawWing)(CGPoint,CGFloat,CGFloat) =
-      ^(CGPoint root, CGFloat len, CGFloat alpha) {
+    // a translucent veined wing as a curved blade swept back over the abdomen.
+    // `beat` (degrees) rotates the whole wing about its hinge — the wingbeat, so
+    // the LIGHT reaction buzzes these real wings instead of drawing extra lines.
+    void (^drawWing)(CGPoint,CGFloat,CGFloat,CGFloat) =
+      ^(CGPoint root, CGFloat len, CGFloat alpha, CGFloat beat) {
+        NSAffineTransform *xf = [NSAffineTransform transform];
+        [xf translateXBy:root.x yBy:root.y];
+        [xf rotateByDegrees:beat];
+        [xf translateXBy:-root.x yBy:-root.y];
         CGPoint tip = CGPointMake(root.x - len, root.y - H*0.05);
         NSBezierPath *wp = [NSBezierPath bezierPath];
         [wp moveToPoint:root];
@@ -533,16 +602,17 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
         [wp curveToPoint:root
            controlPoint1:CGPointMake(tip.x  + len*0.18, tip.y  + H*0.10)
            controlPoint2:CGPointMake(root.x - len*0.20, root.y + H*0.10)];
+        [wp transformUsingAffineTransform:xf];
         [[NSColor colorWithSRGBRed:0.86 green:0.90 blue:0.98 alpha:alpha] setFill];
         [wp fill];
         [[NSColor colorWithWhite:1 alpha:alpha*0.9] setStroke]; wp.lineWidth = 1; [wp stroke];
+        NSBezierPath *veins = [NSBezierPath bezierPath];
         for (int v = 0; v < 3; v++) {                    // a few wing veins
-            CGFloat t = 0.3 + v*0.22;
-            seg(CGPointMake(lrp(root.x,tip.x,0.1), lrp(root.y,tip.y,0.1)+H*0.01*v),
-                CGPointMake(lrp(root.x,tip.x,0.92), lrp(root.y,tip.y,0.92)+H*0.02*v),
-                0.7, [NSColor colorWithWhite:1 alpha:alpha*1.4]);
-            (void)t;
+            [veins moveToPoint:CGPointMake(lrp(root.x,tip.x,0.1), lrp(root.y,tip.y,0.1)+H*0.01*v)];
+            [veins lineToPoint:CGPointMake(lrp(root.x,tip.x,0.92), lrp(root.y,tip.y,0.92)+H*0.02*v)];
         }
+        [veins transformUsingAffineTransform:xf];
+        [[NSColor colorWithWhite:1 alpha:alpha*1.4] setStroke]; veins.lineWidth = 0.7; [veins stroke];
       };
 
     // ---- stage backdrop + ground --------------------------------------------
@@ -608,9 +678,13 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
         [mir concat];
     }
 
+    // wingbeat: a gentle idle flutter, buzzing hard when the LIGHT reaction fires
+    CGFloat beatF = (1.5 + 16.0*_lightR) * sin(_wingPh);
+    CGFloat beatN = (1.5 + 18.0*_lightR) * sin(_wingPh + 0.5);
+
     // ---- far (offside) wing + legs, dimmed, drawn behind the body ------------
     drawWing(CGPointMake(p.thoraxC.x - H*0.02, p.thoraxC.y - p.thoraxRy*0.35),
-             W*0.30, 0.10);
+             W*0.30, 0.10, beatF);
     drawLeg(CGPointMake(p.thoraxC.x + H*0.08, p.thoraxC.y + p.thoraxRy*0.6),
             foot(+H*0.20, M_PI),  1, legFar);
     drawLeg(CGPointMake(p.thoraxC.x - H*0.02, p.thoraxC.y + p.thoraxRy*0.7),
@@ -639,7 +713,7 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
 
     // ---- near wing (translucent, over the abdomen) ---------------------------
     drawWing(CGPointMake(p.thoraxC.x + H*0.01, p.thoraxC.y - p.thoraxRy*0.55),
-             W*0.30, 0.20);
+             W*0.30, 0.20, beatN);
 
     // ---- head ----------------------------------------------------------------
     fillOval(bodyHi, bodyDk, p.headC, p.headR, p.headR, NSMakePoint(0.3,-0.4));
@@ -719,6 +793,49 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
     [NSGraphicsContext restoreGraphicsState];   // pop facing mirror
     [NSGraphicsContext restoreGraphicsState];   // pop stage clip
 
+    // ---- live sensory reactions — each sense drives a visible behaviour -------
+    CGFloat cx = p.thoraxC.x;
+    if (_lightR > 0.02) {                        // LIGHT → the real wings buzz (above) + a flash
+        NSGradient *fl = [[NSGradient alloc] initWithColors:@[
+            [NSColor colorWithWhite:1 alpha:0.14*_lightR], [NSColor clearColor]]];
+        [fl drawInRect:b relativeCenterPosition:NSMakePoint(0.0,-0.3)];
+    }
+    if (_heatR > 0.02) {                         // HEAT → recoil (pose) + rising shimmer
+        NSGradient *wg = [[NSGradient alloc] initWithColors:@[
+            [NSColor clearColor],
+            [NSColor colorWithSRGBRed:1 green:0.4 blue:0.1 alpha:0.16*_heatR]]];
+        [wg drawInRect:b relativeCenterPosition:NSMakePoint(0,0)];
+        [[NSColor colorWithSRGBRed:1 green:0.6 blue:0.2 alpha:0.5*_heatR] setStroke];
+        for (int i = -1; i <= 1; i++) {
+            NSBezierPath *w = [NSBezierPath bezierPath];
+            CGFloat bx = cx + i*H*0.12;
+            [w moveToPoint:CGPointMake(bx, p.ground)];
+            for (CGFloat t = 0; t <= 1.01; t += 0.2)
+                [w lineToPoint:CGPointMake(bx + sin(_phase*0.2 + t*6 + i)*H*0.03,
+                                           p.ground - t*H*0.5)];
+            w.lineWidth = 1.2; [w stroke];
+        }
+    }
+    if (_touchR > 0.05) {                        // TOUCH → startle (pose bob) + a spark
+        CGFloat hx = _facing > 0 ? p.headC.x : 2*cx - p.headC.x;
+        CGPoint sp = CGPointMake(hx + _facing*H*0.12, p.headC.y - p.headR*1.2);
+        for (int i = 0; i < 6; i++) {
+            CGFloat a = i*60*DEG + _phase*0.4;
+            seg(padd(sp, a, H*0.02), padd(sp, a, H*0.05*(0.6+0.4*sin(_phase))), 1.4,
+                [NSColor colorWithSRGBRed:1 green:0.9 blue:0.3 alpha:0.8*_touchR]);
+        }
+    }
+    if (_veto > 0.05 && _foodPresent) {          // BITTER → GABA veto collapses feeding
+        CGFloat mx = _facing > 0 ? p.P0.x : 2*cx - p.P0.x;
+        CGPoint mc = CGPointMake(mx + _facing*H*0.06, p.P0.y + H*0.06);
+        CGFloat r = H*0.05;
+        NSColor *vc = [[FSStyle bitter] colorWithAlphaComponent:0.9*_veto];
+        NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:
+            NSMakeRect(mc.x-r, mc.y-r, r*2, r*2)];
+        [vc setStroke]; ring.lineWidth = 2.2; [ring stroke];
+        seg(padd(mc, 135*DEG, r), padd(mc, -45*DEG, r), 2.2, vc);
+    }
+
     // ---- friendly part labels ------------------------------------------------
     if (_showLabels) {
         NSDictionary *la = @{ NSFontAttributeName:[FSStyle mono:8 weight:NSFontWeightMedium],
@@ -752,14 +869,17 @@ static CGFloat BodyHomeHeadX(CGFloat W) { return W*0.50; }
         drawAtPoint:NSMakePoint(10,22) withAttributes:sub];
 
     BOOL feeding = _foodPresent && _labellumContact;
-    NSString *state = feeding ? @"DRINKING — tongue on the sugar!"
+    BOOL vetoed  = _veto > 0.3 && _foodPresent;
+    NSString *state = vetoed ? @"BITTER — aversive taste, the fly rejects the food"
+                   : (feeding ? @"DRINKING — tongue on the sugar!"
                    : (_walking ? [NSString stringWithFormat:@"SEARCHING — scent %.0f%%",
                                   [self perceivedOdor]*100.0]
                    : (_extension > 0.06 ? @"tasting — tongue out…"
-                   : (_foodPresent ? @"on the food…" : @"at rest")));
-    NSColor *sc = feeding ? [FSStyle output]
+                   : (_foodPresent ? @"on the food…" : @"at rest"))));
+    NSColor *sc = vetoed ? [FSStyle bitter]
+                : (feeding ? [FSStyle output]
                 : (_walking ? [FSStyle water]
-                : (_extension > 0.06 ? [FSStyle sugar] : [FSStyle labelDim]));
+                : (_extension > 0.06 ? [FSStyle sugar] : [FSStyle labelDim])));
     NSDictionary *stA = @{ NSFontAttributeName:[FSStyle mono:11 weight:NSFontWeightBold],
                            NSForegroundColorAttributeName:sc };
     NSString *st = [NSString stringWithFormat:@"MN9 %.0f Hz   ·   tongue out %.0f°   ·   %@",

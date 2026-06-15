@@ -80,6 +80,9 @@ typedef struct {
 
 - (FlySnapshot)snapshot;       // latest published state (thread-safe copy)
 
+// Each sense's peak position along the heat strip (name -> 0..1), for region marks.
+@property (readonly) NSDictionary<NSString *, NSNumber *> *sensePeakBins;
+
 // ---- MCP surface: deterministic control + full data access ----------------
 - (void)stepK:(int)k;          // advance k 1ms steps (only while paused)
 - (NSDictionary *)telemetry;   // every scalar output + bins + region rates

@@ -51,6 +51,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface FSActivityView : NSView
 - (void)pushBins:(const float *)bins count:(int)n ceiling:(float)ceilHz;
 - (void)clearHistory;
+// Side markers showing which heatmap rows a sense occupies. Each entry:
+// @{ @"y":0..1 (bin position), @"color":NSColor, @"label":NSString, @"glow":0..1 }.
+- (void)setSenseMarks:(NSArray<NSDictionary *> *)marks;
 @end
 
 // Animated, anatomically-styled lateral view of the fly head performing the
@@ -67,6 +70,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) BOOL    showLabels;           // anatomical part labels
 @property (nonatomic, readonly) BOOL labellumContact; // tip is touching food
 @property (nonatomic, readonly) BOOL arrivedAtFood;   // walked over & standing on the food
+// Live sensory reactions (0..1), pushed each frame from the afferent firing rates.
+// bitterVeto retracts the proboscis (taste veto); touch startles; heat recoils;
+// light buzzes the wings — so every sense produces a visible behaviour.
+- (void)setReactBitterVeto:(CGFloat)veto touch:(CGFloat)touch
+                      heat:(CGFloat)heat light:(CGFloat)light humid:(CGFloat)humid;
 // Odor concentration (0..1) the fly's antennae currently sense at its position —
 // the controller clamps the olfactory ORNs to this, so smell = real proximity.
 @property (nonatomic, readonly) CGFloat perceivedOdor;

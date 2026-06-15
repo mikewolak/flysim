@@ -20,6 +20,8 @@
     FlySet _steerL, _steerR;                                 // DNa steering DNs L/R
     FlySet _escL, _escR;                                     // DNp escape/loom DNs L/R
 
+    NSDictionary<NSString *, NSNumber *> *_sensePeak;   // sense name -> peak heat-bin (0..1)
+
     os_unfair_lock _lock;     // guards _snap
     FlySnapshot    _snap;
 
@@ -87,7 +89,23 @@
     // DNs) split by side — the brain's collision-avoidance / escape command.
     _escL = flysim_set_by_celltype_prefix(_sim, "DNp", SIDE_LEFT);
     _escR = flysim_set_by_celltype_prefix(_sim, "DNp", SIDE_RIGHT);
+
+    // Where each sense's afferent population sits along the heat strip (peak row-
+    // bin, 0..1) — so the UI can mark which heatmap rows light up per sense.
+    NSDictionary<NSString *, NSNumber *> *named =
+        @{ @"sugar":@(_sugar), @"water":@(_water), @"bitter":@(_bitter),
+           @"smell":@(_smell), @"touch":@(_touch), @"heat":@(_heat),
+           @"humidity":@(_humid), @"light":@(_light) };
+    float prof[FS_BINS];
+    NSMutableDictionary *pk = [NSMutableDictionary dictionary];
+    for (NSString *nm in named) {
+        int pb = flysim_set_bins(_sim, (FlySet)[named[nm] unsignedIntValue], FS_BINS, prof);
+        if (pb >= 0) pk[nm] = @((double)pb / (FS_BINS - 1));
+    }
+    _sensePeak = pk;
 }
+
+- (NSDictionary<NSString *, NSNumber *> *)sensePeakBins { return _sensePeak; }
 
 // apply every UI sensory clamp to the model (called each sim chunk + on step)
 - (void)_applyClamps {
