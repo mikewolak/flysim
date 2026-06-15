@@ -1,6 +1,6 @@
 // FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
 // Educational & academic research use only — commercial use prohibited.  See LICENSE.
-//  MainWindowController.m — the Logic-Pro-styled FlySim panel.
+//  MainWindowController.m — the FlySim control panel.
 
 #import "MainWindowController.h"
 #import "FlyController.h"

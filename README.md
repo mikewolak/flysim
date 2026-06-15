@@ -4,8 +4,8 @@
 
 A connectome-driven *Drosophila* brain simulator: the FlyWire whole-brain
 connectome (139,266 neurons / 16.8M synapses) run as a leaky integrate-and-fire
-network on Apple Silicon, with a Logic-Pro-styled Cocoa GUI and a full MCP
-control plane. See `FLYSIM_BUILD.md` for the design.
+network on Apple Silicon, with a native Cocoa GUI and a full MCP control plane.
+See `FLYSIM_BUILD.md` for the design.
 
 ![FlySim — Brain view](docs/screenshot-brain.png)
 

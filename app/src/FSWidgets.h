@@ -1,8 +1,7 @@
 // FlySim  ·  (c) 2026 mikewolak@gmail.com / Epromfoundry, Inc.  All rights reserved.
 // Educational & academic research use only — commercial use prohibited.  See LICENSE.
-//  FSWidgets.h — Logic-Pro-styled custom controls drawn with CoreGraphics.
-//  Dark charcoal panels, illuminated toggle buttons, LED meters, and a
-//  scrolling population-activity heatmap.
+//  FSWidgets.h — custom controls drawn with CoreGraphics: panels, toggle
+//  buttons, meters, and a scrolling population-activity heatmap.
 
 #import <Cocoa/Cocoa.h>
 
